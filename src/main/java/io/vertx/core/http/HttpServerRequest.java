@@ -1,34 +1,27 @@
 /*
- * Copyright (c) 2011-2013 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core.http;
 
-import io.vertx.codegen.annotations.Nullable;
+import io.netty.handler.codec.http2.Http2CodecUtil;
+import io.vertx.codegen.annotations.*;
 import io.vertx.core.Handler;
 import io.vertx.core.MultiMap;
 import io.vertx.core.buffer.Buffer;
-import io.vertx.codegen.annotations.CacheReturn;
-import io.vertx.codegen.annotations.Fluent;
-import io.vertx.codegen.annotations.GenIgnore;
-import io.vertx.codegen.annotations.VertxGen;
 import io.vertx.core.net.NetSocket;
 import io.vertx.core.net.SocketAddress;
 import io.vertx.core.streams.ReadStream;
 
 import javax.net.ssl.SSLPeerUnverifiedException;
+import javax.net.ssl.SSLSession;
 import javax.security.cert.X509Certificate;
 
 /**
@@ -60,6 +53,9 @@ public interface HttpServerRequest extends ReadStream<Buffer> {
   HttpServerRequest resume();
 
   @Override
+  HttpServerRequest fetch(long amount);
+
+  @Override
   HttpServerRequest endHandler(Handler<Void> endHandler);
 
   /**
@@ -71,11 +67,22 @@ public interface HttpServerRequest extends ReadStream<Buffer> {
    * @return the HTTP method for the request.
    */
   HttpMethod method();
-  
+
+  /**
+   * @return the HTTP method as sent by the client
+   */
+  String rawMethod();
+
   /**
    * @return true if this {@link io.vertx.core.net.NetSocket} is encrypted via SSL/TLS
    */
   boolean isSSL();
+
+  /**
+   * @return the scheme of the request
+   */
+  @Nullable
+  String scheme();
 
   /**
    * @return the URI of the request. This is usually a relative URI
@@ -85,6 +92,7 @@ public interface HttpServerRequest extends ReadStream<Buffer> {
   /**
    * @return The path part of the uri. For example /somepath/somemorepath/someresource.foo
    */
+  @Nullable
   String path();
 
   /**
@@ -92,6 +100,17 @@ public interface HttpServerRequest extends ReadStream<Buffer> {
    */
   @Nullable
   String query();
+
+  /**
+   * @return the request host. For HTTP2 it returns the {@literal :authority} pseudo header otherwise it returns the {@literal Host} header
+   */
+  @Nullable
+  String host();
+
+  /**
+   * @return the total number of bytes read for the body of the request.
+   */
+  long bytesRead();
 
   /**
    * @return the response. Each instance of this class has an {@link HttpServerResponse} instance attached to it. This is used
@@ -121,7 +140,7 @@ public interface HttpServerRequest extends ReadStream<Buffer> {
    * @param headerName  the header name
    * @return the header value
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   String getHeader(CharSequence headerName);
 
   /**
@@ -153,10 +172,24 @@ public interface HttpServerRequest extends ReadStream<Buffer> {
   SocketAddress localAddress();
 
   /**
-   * @return an array of the peer certificates. Returns null if connection is
+   * @return SSLSession associated with the underlying socket. Returns null if connection is
+   *         not SSL.
+   * @see javax.net.ssl.SSLSession
+   */
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
+  SSLSession sslSession();
+
+  /**
+   * Note: Java SE 5+ recommends to use javax.net.ssl.SSLSession#getPeerCertificates() instead of
+   * of javax.net.ssl.SSLSession#getPeerCertificateChain() which this method is based on. Use {@link #sslSession()} to
+   * access that method.
+   *
+   * @return an ordered array of the peer certificates. Returns null if connection is
    *         not SSL.
    * @throws javax.net.ssl.SSLPeerUnverifiedException SSL peer's identity has not been verified.
-  */
+   * @see javax.net.ssl.SSLSession#getPeerCertificateChain()
+   * @see #sslSession()
+   */
   @GenIgnore
   X509Certificate[] peerCertificateChain() throws SSLPeerUnverifiedException;
 
@@ -174,18 +207,46 @@ public interface HttpServerRequest extends ReadStream<Buffer> {
    * @param bodyHandler This handler will be called after all the body has been received
    */
   @Fluent
-  HttpServerRequest bodyHandler(@Nullable Handler<Buffer> bodyHandler);
+  default HttpServerRequest bodyHandler(@Nullable Handler<Buffer> bodyHandler) {
+    if (bodyHandler != null) {
+      Buffer body = Buffer.buffer();
+      handler(body::appendBuffer);
+      endHandler(v -> bodyHandler.handle(body));
+    }
+    return this;
+  }
 
   /**
    * Get a net socket for the underlying connection of this request.
-   * <p>
-   * USE THIS WITH CAUTION!
-   * <p>
-   * Once you have called this method, you must handle writing to the connection yourself using the net socket,
-   * the server request instance will no longer be usable as normal.
-   * Writing to the socket directly if you don't know what you're doing can easily break the HTTP protocol.
+   * <p/>
+   * This method must be called before the server response is ended.
+   * <p/>
+   * With {@code CONNECT} requests, a {@code 200} response is sent with no {@code content-length} header set
+   * before returning the socket.
+   * <p/>
+   * <pre>
+   * server.requestHandler(req -> {
+   *   if (req.method() == HttpMethod.CONNECT) {
+   *     // Send a 200 response to accept the connect
+   *     NetSocket socket = req.netSocket();
+   *     socket.handler(buff -> {
+   *       socket.write(buff);
+   *     });
+   *   }
+   *   ...
+   * });
+   * </pre>
+   * <p/>
+   * For other HTTP/1 requests once you have called this method, you must handle writing to the connection yourself using
+   * the net socket, the server request instance will no longer be usable as normal. USE THIS WITH CAUTION! Writing to the socket directly if you don't know what you're
+   * doing can easily break the HTTP protocol.
+   * <p/>
+   * With HTTP/2, a {@code 200} response is always sent with no {@code content-length} header set before returning the socket
+   * like in the {@code CONNECT} case above.
+   * <p/>
    *
    * @return the net socket
+   * @throws IllegalStateException when the socket can't be created
    */
   @CacheReturn
   NetSocket netSocket();
@@ -253,4 +314,35 @@ public interface HttpServerRequest extends ReadStream<Buffer> {
    */
   boolean isEnded();
 
+  /**
+   * Set a custom frame handler. The handler will get notified when the http stream receives an custom HTTP/2
+   * frame. HTTP/2 permits extension of the protocol.
+   *
+   * @return a reference to this, so the API can be used fluently
+   */
+  @Fluent
+  HttpServerRequest customFrameHandler(Handler<HttpFrame> handler);
+
+  /**
+   * @return the {@link HttpConnection} associated with this request
+   */
+  @CacheReturn
+  HttpConnection connection();
+
+  /**
+   * @return the priority of the associated HTTP/2 stream for HTTP/2 otherwise {@code null}
+   */
+  default StreamPriority streamPriority() {
+      return null;
+  }
+
+  /**
+   * Set an handler for stream priority changes
+   * <p>
+   * This is not implemented for HTTP/1.x.
+   * 
+   * @param handler the handler to be called when stream priority changes
+   */
+  @Fluent
+  HttpServerRequest streamPriorityHandler(Handler<StreamPriority> handler);
 }

@@ -1,38 +1,35 @@
 /*
- * Copyright (c) 2011-2013 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core.file.impl;
 
 import io.vertx.core.AsyncResult;
+import io.vertx.core.Future;
 import io.vertx.core.Handler;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.file.AsyncFile;
+import io.vertx.core.file.CopyOptions;
 import io.vertx.core.file.FileProps;
 import io.vertx.core.file.FileSystem;
 import io.vertx.core.file.FileSystemException;
 import io.vertx.core.file.FileSystemProps;
 import io.vertx.core.file.OpenOptions;
-import io.vertx.core.impl.ContextImpl;
+import io.vertx.core.impl.ContextInternal;
 import io.vertx.core.impl.VertxInternal;
-import io.vertx.core.impl.Action;
 
 import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.file.CopyOption;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileStore;
 import java.nio.file.FileVisitOption;
@@ -42,6 +39,7 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.GroupPrincipal;
@@ -52,6 +50,7 @@ import java.nio.file.attribute.UserPrincipal;
 import java.nio.file.attribute.UserPrincipalLookupService;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -65,6 +64,8 @@ import java.util.regex.Pattern;
  */
 public class FileSystemImpl implements FileSystem {
 
+  private static final CopyOptions DEFAULT_OPTIONS = new CopyOptions();
+
   protected final VertxInternal vertx;
 
   public FileSystemImpl(VertxInternal vertx) {
@@ -72,32 +73,42 @@ public class FileSystemImpl implements FileSystem {
   }
 
   public FileSystem copy(String from, String to, Handler<AsyncResult<Void>> handler) {
-    copyInternal(from, to, handler).run();
+    return copy(from, to, DEFAULT_OPTIONS, handler);
+  }
+
+  @Override
+  public FileSystem copy(String from, String to, CopyOptions options, Handler<AsyncResult<Void>> handler) {
+    copyInternal(from, to, options, handler).run();
     return this;
   }
 
   public FileSystem copyBlocking(String from, String to) {
-    copyInternal(from, to, null).perform();
+    copyInternal(from, to, DEFAULT_OPTIONS, null).perform();
     return this;
   }
 
   public FileSystem copyRecursive(String from, String to, boolean recursive, Handler<AsyncResult<Void>> handler) {
-    copyInternal(from, to, recursive, handler).run();
+    copyRecursiveInternal(from, to, recursive, handler).run();
     return this;
   }
 
   public FileSystem copyRecursiveBlocking(String from, String to, boolean recursive) {
-    copyInternal(from, to, recursive, null).perform();
+    copyRecursiveInternal(from, to, recursive, null).perform();
     return this;
   }
 
   public FileSystem move(String from, String to, Handler<AsyncResult<Void>> handler) {
-    moveInternal(from, to, handler).run();
+    return move(from, to, DEFAULT_OPTIONS, handler);
+  }
+
+  @Override
+  public FileSystem move(String from, String to, CopyOptions options, Handler<AsyncResult<Void>> handler) {
+    moveInternal(from, to, options, handler).run();
     return this;
   }
 
   public FileSystem moveBlocking(String from, String to) {
-    moveInternal(from, to, null).perform();
+    moveInternal(from, to, DEFAULT_OPTIONS, null).perform();
     return this;
   }
 
@@ -342,11 +353,95 @@ public class FileSystemImpl implements FileSystem {
     return fsPropsInternal(path, null).perform();
   }
 
-  private BlockingAction<Void> copyInternal(String from, String to, Handler<AsyncResult<Void>> handler) {
-    return copyInternal(from, to, false, handler);
+
+  @Override
+  public FileSystem createTempDirectory(String prefix, Handler<AsyncResult<String>> handler) {
+    createTempDirectoryInternal(null, prefix, null, handler).run();
+    return this;
   }
 
-  private BlockingAction<Void> copyInternal(String from, String to, boolean recursive, Handler<AsyncResult<Void>> handler) {
+  @Override
+  public String createTempDirectoryBlocking(String prefix) {
+    return createTempDirectoryInternal(null, prefix, null, null).perform();
+  }
+
+  @Override
+  public FileSystem createTempDirectory(String prefix, String perms, Handler<AsyncResult<String>> handler) {
+    createTempDirectoryInternal(null, prefix, perms, handler).run();
+    return this;
+  }
+
+  @Override
+  public String createTempDirectoryBlocking(String prefix, String perms) {
+    return createTempDirectoryInternal(null, prefix, perms, null).perform();
+  }
+
+  @Override
+  public FileSystem createTempDirectory(String dir, String prefix, String perms, Handler<AsyncResult<String>> handler) {
+    createTempDirectoryInternal(dir, prefix, perms, handler).run();
+    return this;
+  }
+
+  @Override
+  public String createTempDirectoryBlocking(String dir, String prefix, String perms) {
+    return createTempDirectoryInternal(dir, prefix, perms, null).perform();
+  }
+
+  @Override
+  public FileSystem createTempFile(String prefix, String suffix, Handler<AsyncResult<String>> handler) {
+    createTempFileInternal(null, prefix, suffix, null, handler).run();
+    return this;
+  }
+
+  @Override
+  public String createTempFileBlocking(String prefix, String suffix) {
+    return createTempFileInternal(null, prefix, suffix, null, null).perform();
+  }
+
+  @Override
+  public FileSystem createTempFile(String prefix, String suffix, String perms, Handler<AsyncResult<String>> handler) {
+    createTempFileInternal(null, prefix, suffix, perms, handler).run();
+    return this;
+  }
+
+  @Override
+  public String createTempFileBlocking(String prefix, String suffix, String perms) {
+    return createTempFileInternal(null, prefix, suffix, perms, null).perform();
+  }
+
+
+  @Override
+  public FileSystem createTempFile(String dir, String prefix, String suffix, String perms, Handler<AsyncResult<String>> handler) {
+    createTempFileInternal(dir, prefix, suffix, perms, handler).run();
+    return this;
+  }
+
+  @Override
+  public String createTempFileBlocking(String dir, String prefix, String suffix, String perms) {
+    return createTempFileInternal(dir, prefix, suffix, perms, null).perform();
+  }
+
+  private BlockingAction<Void> copyInternal(String from, String to, CopyOptions options, Handler<AsyncResult<Void>> handler) {
+    Objects.requireNonNull(from);
+    Objects.requireNonNull(to);
+    Objects.requireNonNull(options);
+    Set<CopyOption> copyOptionSet = toCopyOptionSet(options);
+    CopyOption[] copyOptions = copyOptionSet.toArray(new CopyOption[copyOptionSet.size()]);
+    return new BlockingAction<Void>(handler) {
+      public Void perform() {
+        try {
+          Path source = vertx.resolveFile(from).toPath();
+          Path target = vertx.resolveFile(to).toPath();
+          Files.copy(source, target, copyOptions);
+        } catch (IOException e) {
+          throw new FileSystemException(e);
+        }
+        return null;
+      }
+    };
+  }
+
+  private BlockingAction<Void> copyRecursiveInternal(String from, String to, boolean recursive, Handler<AsyncResult<Void>> handler) {
     Objects.requireNonNull(from);
     Objects.requireNonNull(to);
     return new BlockingAction<Void>(handler) {
@@ -356,27 +451,27 @@ public class FileSystemImpl implements FileSystem {
           Path target = vertx.resolveFile(to).toPath();
           if (recursive) {
             Files.walkFileTree(source, EnumSet.of(FileVisitOption.FOLLOW_LINKS), Integer.MAX_VALUE,
-                new SimpleFileVisitor<Path>() {
-                  public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
-                      throws IOException {
-                    Path targetDir = target.resolve(source.relativize(dir));
-                    try {
-                      Files.copy(dir, targetDir);
-                    } catch (FileAlreadyExistsException e) {
-                      if (!Files.isDirectory(targetDir)) {
-                        throw e;
-                      }
+              new SimpleFileVisitor<Path>() {
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
+                  throws IOException {
+                  Path targetDir = target.resolve(source.relativize(dir));
+                  try {
+                    Files.copy(dir, targetDir);
+                  } catch (FileAlreadyExistsException e) {
+                    if (!Files.isDirectory(targetDir)) {
+                      throw e;
                     }
-                    return FileVisitResult.CONTINUE;
                   }
+                  return FileVisitResult.CONTINUE;
+                }
 
-                  @Override
-                  public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
-                      throws IOException {
-                    Files.copy(file, target.resolve(source.relativize(file)));
-                    return FileVisitResult.CONTINUE;
-                  }
-                });
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                  throws IOException {
+                  Files.copy(file, target.resolve(source.relativize(file)));
+                  return FileVisitResult.CONTINUE;
+                }
+              });
           } else {
             Files.copy(source, target);
           }
@@ -388,15 +483,18 @@ public class FileSystemImpl implements FileSystem {
     };
   }
 
-  private BlockingAction<Void> moveInternal(String from, String to, Handler<AsyncResult<Void>> handler) {
+  private BlockingAction<Void> moveInternal(String from, String to, CopyOptions options, Handler<AsyncResult<Void>> handler) {
     Objects.requireNonNull(from);
     Objects.requireNonNull(to);
+    Objects.requireNonNull(options);
+    Set<CopyOption> copyOptionSet = toCopyOptionSet(options);
+    CopyOption[] copyOptions = copyOptionSet.toArray(new CopyOption[copyOptionSet.size()]);
     return new BlockingAction<Void>(handler) {
       public Void perform() {
         try {
           Path source = vertx.resolveFile(from).toPath();
           Path target = vertx.resolveFile(to).toPath();
-          Files.move(source, target);
+          Files.move(source, target, copyOptions);
         } catch (IOException e) {
           throw new FileSystemException(e);
         }
@@ -586,30 +684,34 @@ public class FileSystemImpl implements FileSystem {
       public Void perform() {
         try {
           Path source = vertx.resolveFile(path).toPath();
-          if (recursive) {
-            Files.walkFileTree(source, new SimpleFileVisitor<Path>() {
-              public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                Files.delete(file);
-                return FileVisitResult.CONTINUE;
-              }
-              public FileVisitResult postVisitDirectory(Path dir, IOException e) throws IOException {
-                if (e == null) {
-                  Files.delete(dir);
-                  return FileVisitResult.CONTINUE;
-                } else {
-                  throw e;
-                }
-              }
-            });
-          } else {
-            Files.delete(source);
-          }
+          delete(source, recursive);
         } catch (IOException e) {
           throw new FileSystemException(e);
         }
         return null;
       }
     };
+  }
+
+  public static void delete(Path path, boolean recursive) throws IOException {
+    if (recursive) {
+      Files.walkFileTree(path, new SimpleFileVisitor<Path>() {
+        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+          Files.delete(file);
+          return FileVisitResult.CONTINUE;
+        }
+        public FileVisitResult postVisitDirectory(Path dir, IOException e) throws IOException {
+          if (e == null) {
+            Files.delete(dir);
+            return FileVisitResult.CONTINUE;
+          } else {
+            throw e;
+          }
+        }
+      });
+    } else {
+      Files.delete(path);
+    }
   }
 
   private BlockingAction<Void> mkdirInternal(String path, Handler<AsyncResult<Void>> handler) {
@@ -648,6 +750,62 @@ public class FileSystemImpl implements FileSystem {
           throw new FileSystemException(e);
         }
         return null;
+      }
+    };
+  }
+
+  protected BlockingAction<String> createTempDirectoryInternal(String parentDir, String prefix, String perms, Handler<AsyncResult<String>> handler) {
+    FileAttribute<?> attrs = perms == null ? null : PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(perms));
+    return new BlockingAction<String>(handler) {
+      public String perform() {
+        try {
+          Path tmpDir;
+          if (parentDir != null) {
+            Path dir = vertx.resolveFile(parentDir).toPath();
+            if (attrs != null) {
+              tmpDir = Files.createTempDirectory(dir, prefix, attrs);
+            } else {
+              tmpDir = Files.createTempDirectory(dir, prefix);
+            }
+          } else {
+            if (attrs != null) {
+              tmpDir = Files.createTempDirectory(prefix, attrs);
+            } else {
+              tmpDir = Files.createTempDirectory(prefix);
+            }
+          }
+          return tmpDir.toFile().getAbsolutePath();
+        } catch (IOException e) {
+          throw new FileSystemException(e);
+        }
+      }
+    };
+  }
+
+  protected BlockingAction<String> createTempFileInternal(String parentDir, String prefix, String suffix, String perms, Handler<AsyncResult<String>> handler) {
+    FileAttribute<?> attrs = perms == null ? null : PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(perms));
+    return new BlockingAction<String>(handler) {
+      public String perform() {
+        try {
+          Path tmpFile;
+          if (parentDir != null) {
+            Path dir = vertx.resolveFile(parentDir).toPath();
+            if (attrs != null) {
+              tmpFile = Files.createTempFile(dir, prefix, suffix, attrs);
+            } else {
+              tmpFile = Files.createTempFile(dir, prefix, suffix);
+            }
+          } else {
+            if (attrs != null) {
+              tmpFile = Files.createTempFile(prefix, suffix, attrs);
+            } else {
+              tmpFile = Files.createTempFile(prefix, suffix);
+            }
+          }
+          return tmpFile.toFile().getAbsolutePath();
+        } catch (IOException e) {
+          throw new FileSystemException(e);
+        }
       }
     };
   }
@@ -733,14 +891,14 @@ public class FileSystemImpl implements FileSystem {
     Objects.requireNonNull(p);
     Objects.requireNonNull(options);
     return new BlockingAction<AsyncFile>(handler) {
-      String path = vertx.resolveFile(p).getAbsolutePath();
       public AsyncFile perform() {
+        String path = vertx.resolveFile(p).getAbsolutePath();
         return doOpen(path, options, context);
       }
     };
   }
 
-  protected AsyncFile doOpen(String path, OpenOptions options, ContextImpl context) {
+  protected AsyncFile doOpen(String path, OpenOptions options, ContextInternal context) {
     return new AsyncFileImpl(vertx, path, options, context);
   }
 
@@ -793,10 +951,10 @@ public class FileSystemImpl implements FileSystem {
     };
   }
 
-  protected abstract class BlockingAction<T> implements Action<T> {
+  protected abstract class BlockingAction<T> implements Handler<Future<T>> {
 
     private final Handler<AsyncResult<T>> handler;
-    protected final ContextImpl context;
+    protected final ContextInternal context;
 
     public BlockingAction(Handler<AsyncResult<T>> handler) {
       this.handler = handler;
@@ -806,7 +964,30 @@ public class FileSystemImpl implements FileSystem {
      * Run the blocking action using a thread from the worker pool.
      */
     public void run() {
-      context.executeBlocking(this, handler);
+      context.executeBlockingInternal(this, handler);
     }
+
+    @Override
+    public void handle(Future<T> fut) {
+      try {
+        T result = perform();
+        fut.complete(result);
+      } catch (Exception e) {
+        fut.fail(e);
+      }
+    }
+
+    public abstract T perform();
+
+  }
+
+  // Visible for testing
+  static Set<CopyOption> toCopyOptionSet(CopyOptions copyOptions) {
+    Set<CopyOption> copyOptionSet = new HashSet<>();
+    if (copyOptions.isReplaceExisting()) copyOptionSet.add(StandardCopyOption.REPLACE_EXISTING);
+    if (copyOptions.isCopyAttributes()) copyOptionSet.add(StandardCopyOption.COPY_ATTRIBUTES);
+    if (copyOptions.isAtomicMove()) copyOptionSet.add(StandardCopyOption.ATOMIC_MOVE);
+    if (copyOptions.isNofollowLinks()) copyOptionSet.add(LinkOption.NOFOLLOW_LINKS);
+    return copyOptionSet;
   }
 }

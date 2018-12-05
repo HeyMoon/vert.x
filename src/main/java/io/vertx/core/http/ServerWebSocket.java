@@ -1,17 +1,12 @@
 /*
- * Copyright (c) 2011-2013 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core.http;
@@ -23,8 +18,10 @@ import io.vertx.codegen.annotations.VertxGen;
 import io.vertx.core.Handler;
 import io.vertx.core.MultiMap;
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.streams.ReadStream;
 
 import javax.net.ssl.SSLPeerUnverifiedException;
+import javax.net.ssl.SSLSession;
 import javax.security.cert.X509Certificate;
 
 /**
@@ -49,6 +46,9 @@ public interface ServerWebSocket extends WebSocketBase {
 
   @Override
   ServerWebSocket resume();
+
+  @Override
+  ServerWebSocket fetch(long amount);
 
   @Override
   ServerWebSocket endHandler(Handler<Void> endHandler);
@@ -103,20 +103,47 @@ public interface ServerWebSocket extends WebSocketBase {
   MultiMap headers();
 
   /**
+   * Accept the WebSocket and terminate the WebSocket handshake.
+   * <p/>
+   * This method should be called from the websocket handler to explicitely accept the websocker and
+   * terminate the WebSocket handshake.
+   */
+  void accept();
+
+  /**
    * Reject the WebSocket.
    * <p>
    * Calling this method from the websocket handler when it is first passed to you gives you the opportunity to reject
    * the websocket, which will cause the websocket handshake to fail by returning
-   * a 404 response code.
+   * a {@literal 502} response code.
    * <p>
    * You might use this method, if for example you only want to accept WebSockets with a particular path.
    */
   void reject();
 
   /**
-   * @return an array of the peer certificates. Returns null if connection is
+   * Like {@link #reject()} but with a {@code status}.
+   */
+  void reject(int status);
+
+  /**
+   * @return SSLSession associated with the underlying socket. Returns null if connection is
+   *         not SSL.
+   * @see javax.net.ssl.SSLSession
+   */
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
+  SSLSession sslSession();
+
+  /**
+   * Note: Java SE 5+ recommends to use javax.net.ssl.SSLSession#getPeerCertificates() instead of
+   * of javax.net.ssl.SSLSession#getPeerCertificateChain() which this method is based on. Use {@link #sslSession()} to
+   * access that method.
+   *
+   * @return an ordered array of the peer certificates. Returns null if connection is
    *         not SSL.
    * @throws javax.net.ssl.SSLPeerUnverifiedException SSL peer's identity has not been verified.
+   * @see javax.net.ssl.SSLSession#getPeerCertificateChain()
+   * @see #sslSession()
    */
   @GenIgnore
   X509Certificate[] peerCertificateChain() throws SSLPeerUnverifiedException;

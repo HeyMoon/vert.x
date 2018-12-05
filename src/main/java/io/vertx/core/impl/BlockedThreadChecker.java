@@ -1,17 +1,12 @@
 /*
- * Copyright 2014 Red Hat, Inc.
+ * Copyright (c) 2014 Red Hat, Inc. and others
  *
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- * The Eclipse Public License is available at
- * http://www.eclipse.org/legal/epl-v10.html
- *
- * The Apache License v2.0 is available at
- * http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core.impl;
@@ -24,6 +19,7 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.WeakHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author <a href="http://tfox.org">Tim Fox</a>
@@ -36,7 +32,7 @@ public class BlockedThreadChecker {
   private final Map<VertxThread, Object> threads = new WeakHashMap<>();
   private final Timer timer; // Need to use our own timer - can't use event loop for this
 
-  BlockedThreadChecker(long interval, long maxEventLoopExecTime, long maxWorkerExecTime, long warningExceptionTime) {
+  BlockedThreadChecker(long interval, TimeUnit intervalUnit, long warningExceptionTime, TimeUnit warningExceptionTimeUnit) {
     timer = new Timer("vertx-blocked-thread-checker", true);
     timer.schedule(new TimerTask() {
       @Override
@@ -46,10 +42,12 @@ public class BlockedThreadChecker {
           for (VertxThread thread : threads.keySet()) {
             long execStart = thread.startTime();
             long dur = now - execStart;
-            final long timeLimit = thread.isWorker() ? maxWorkerExecTime : maxEventLoopExecTime;
-            if (execStart != 0 && dur > timeLimit) {
-              final String message = "Thread " + thread + " has been blocked for " + (dur / 1000000) + " ms, time limit is " + (timeLimit / 1000000);
-              if (dur <= warningExceptionTime) {
+            final long timeLimit = thread.getMaxExecTime();
+            TimeUnit maxExecTimeUnit = thread.getMaxExecTimeUnit();
+            long val = maxExecTimeUnit.convert(dur, TimeUnit.NANOSECONDS);
+            if (execStart != 0 && val >= timeLimit) {
+              final String message = "Thread " + thread + " has been blocked for " + (dur / 1_000_000) + " ms, time limit is " + TimeUnit.MILLISECONDS.convert(timeLimit, maxExecTimeUnit) + " ms";
+              if (warningExceptionTimeUnit.convert(dur, TimeUnit.NANOSECONDS) <= warningExceptionTime) {
                 log.warn(message);
               } else {
                 VertxException stackTrace = new VertxException("Thread blocked");
@@ -60,7 +58,7 @@ public class BlockedThreadChecker {
           }
         }
       }
-    }, interval, interval);
+    }, intervalUnit.toMillis(interval), intervalUnit.toMillis(interval));
   }
 
   public synchronized void registerThread(VertxThread thread) {

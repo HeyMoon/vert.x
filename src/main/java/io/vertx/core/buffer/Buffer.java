@@ -1,18 +1,14 @@
 /*
- * Copyright (c) 2011-2013 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
+
 package io.vertx.core.buffer;
 
 
@@ -23,6 +19,7 @@ import io.vertx.codegen.annotations.VertxGen;
 import io.vertx.core.ServiceHelper;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.shareddata.Shareable;
 import io.vertx.core.shareddata.impl.ClusterSerializable;
 import io.vertx.core.spi.BufferFactory;
 
@@ -40,7 +37,7 @@ import java.nio.charset.Charset;
  * @author <a href="http://tfox.org">Tim Fox</a>
  */
 @VertxGen
-public interface Buffer extends ClusterSerializable {
+public interface Buffer extends ClusterSerializable, Shareable {
 
   /**
    * Create a new, empty buffer.
@@ -57,7 +54,7 @@ public interface Buffer extends ClusterSerializable {
    * If you know the buffer will require a certain size, providing the hint can prevent unnecessary re-allocations
    * as the buffer is written to and resized.
    *
-   * @param initialSizeHint  the hint, in bytes
+   * @param initialSizeHint the hint, in bytes
    * @return the buffer
    */
   static Buffer buffer(int initialSizeHint) {
@@ -67,8 +64,8 @@ public interface Buffer extends ClusterSerializable {
   /**
    * Create a new buffer from a string. The string will be UTF-8 encoded into the buffer.
    *
-   * @param string  the string
-   * @return  the buffer
+   * @param string the string
+   * @return the buffer
    */
   static Buffer buffer(String string) {
     return factory.buffer(string);
@@ -78,8 +75,8 @@ public interface Buffer extends ClusterSerializable {
    * Create a new buffer from a string and using the specified encoding.
    * The string will be encoded into the buffer using the specified encoding.
    *
-   * @param string  the string
-   * @return  the buffer
+   * @param string the string
+   * @return the buffer
    */
   static Buffer buffer(String string, String enc) {
     return factory.buffer(string, enc);
@@ -88,21 +85,32 @@ public interface Buffer extends ClusterSerializable {
   /**
    * Create a new buffer from a byte[]. The byte[] will be copied to form the buffer.
    *
-   * @param bytes  the byte array
-   * @return  the buffer
+   * @param bytes the byte array
+   * @return the buffer
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   static Buffer buffer(byte[] bytes) {
     return factory.buffer(bytes);
   }
 
   /**
+   * <p>
    * Create a new buffer from a Netty {@code ByteBuf}.
+   * <i>Note that</i> the returned buffer is backed by given Netty ByteBuf,
+   * so changes in the returned buffer are reflected in given Netty ByteBuf, and vice-versa.
+   * </p>
+   * <p>
+   * For example, both buffers in the code below share their data:
+   * </p>
+   * <pre>
+   *   Buffer src = Buffer.buffer();
+   *   Buffer clone = Buffer.buffer(src.getByteBuf());
+   * </pre>
    *
-   * @param byteBuf  the Netty ByteBuf
+   * @param byteBuf the Netty ByteBuf
    * @return the buffer
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   static Buffer buffer(ByteBuf byteBuf) {
     return factory.buffer(byteBuf);
   }
@@ -120,7 +128,7 @@ public interface Buffer extends ClusterSerializable {
   /**
    * Returns a {@code String} representation of the Buffer with the encoding specified by {@code enc}
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   String toString(Charset enc);
 
   /**
@@ -155,6 +163,13 @@ public interface Buffer extends ClusterSerializable {
   int getInt(int pos);
 
   /**
+   * Gets a 32-bit integer at the specified absolute {@code index} in this buffer with Little Endian Byte Order.
+   *
+   * @throws IndexOutOfBoundsException if the specified {@code index} is less than {@code 0} or {@code index + 4} is greater than {@code this.capacity}
+   */
+  int getIntLE(int pos);
+
+  /**
    * Returns the unsigned {@code int} at position {@code pos} in the Buffer, as a {@code long}.
    *
    * @throws IndexOutOfBoundsException if the specified {@code pos} is less than {@code 0} or {@code pos + 4} is greater than the length of the Buffer.
@@ -162,11 +177,25 @@ public interface Buffer extends ClusterSerializable {
   long getUnsignedInt(int pos);
 
   /**
+   * Returns the unsigned {@code int} at position {@code pos} in the Buffer, as a {@code long} in Little Endian Byte Order.
+   *
+   * @throws IndexOutOfBoundsException if the specified {@code pos} is less than {@code 0} or {@code pos + 4} is greater than the length of the Buffer.
+   */
+  long getUnsignedIntLE(int pos);
+
+  /**
    * Returns the {@code long} at position {@code pos} in the Buffer.
    *
    * @throws IndexOutOfBoundsException if the specified {@code pos} is less than {@code 0} or {@code pos + 8} is greater than the length of the Buffer.
    */
   long getLong(int pos);
+
+  /**
+   * Gets a 64-bit long integer at the specified absolute {@code index} in this buffer in Little Endian Byte Order.
+   *
+   * @throws IndexOutOfBoundsException if the specified {@code index} is less than {@code 0} or {@code index + 8} is greater than the length of the Buffer.
+   */
+  long getLongLE(int pos);
 
   /**
    * Returns the {@code double} at position {@code pos} in the Buffer.
@@ -190,6 +219,13 @@ public interface Buffer extends ClusterSerializable {
   short getShort(int pos);
 
   /**
+   * Gets a 16-bit short integer at the specified absolute {@code index} in this buffer in Little Endian Byte Order.
+   *
+   * @throws IndexOutOfBoundsException if the specified {@code index} is less than {@code 0} or {@code index + 2} is greater than the length of the Buffer.
+   */
+  short getShortLE(int pos);
+
+  /**
    * Returns the unsigned {@code short} at position {@code pos} in the Buffer, as an {@code int}.
    *
    * @throws IndexOutOfBoundsException if the specified {@code pos} is less than {@code 0} or {@code pos + 2} is greater than the length of the Buffer.
@@ -197,16 +233,51 @@ public interface Buffer extends ClusterSerializable {
   int getUnsignedShort(int pos);
 
   /**
+   * Gets an unsigned 16-bit short integer at the specified absolute {@code index} in this buffer in Little Endian Byte Order.
+   *
+   * @throws IndexOutOfBoundsException if the specified {@code index} is less than {@code 0} or {@code index + 2} is greater than the length of the Buffer.
+   */
+  int getUnsignedShortLE(int pos);
+
+  /**
+   * Gets a 24-bit medium integer at the specified absolute {@code index} in this buffer.
+   *
+   * @throws IndexOutOfBoundsException if the specified {@code index} is less than {@code 0} or {@code index + 3} is greater than the length of the Buffer.
+   */
+  int getMedium(int pos);
+
+  /**
+   * Gets a 24-bit medium integer at the specified absolute {@code index} in this buffer in the Little Endian Byte Order.
+   *
+   * @throws IndexOutOfBoundsException if the specified {@code index} is less than {@code 0} or {@code index + 3} is greater than the length of the Buffer.
+   */
+  int getMediumLE(int pos);
+
+  /**
+   * Gets an unsigned 24-bit medium integer at the specified absolute {@code index} in this buffer.
+   *
+   * @throws IndexOutOfBoundsException if the specified {@code index} is less than {@code 0} or {@code index + 3} is greater than the length of the Buffer.
+   */
+  int getUnsignedMedium(int pos);
+
+  /**
+   * Gets an unsigned 24-bit medium integer at the specified absolute {@code index} in this buffer in Little Endian Byte Order.
+   *
+   * @throws IndexOutOfBoundsException if the specified {@code index} is less than {@code 0} or {@code index + 3} is greater than the length of the Buffer.
+   */
+  int getUnsignedMediumLE(int pos);
+
+  /**
    * Returns a copy of the entire Buffer as a {@code byte[]}
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   byte[] getBytes();
 
   /**
    * Returns a copy of a sub-sequence the Buffer as a {@code byte[]} starting at position {@code start}
    * and ending at position {@code end - 1}
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   byte[] getBytes(int start, int end);
 
   /**
@@ -215,7 +286,8 @@ public interface Buffer extends ClusterSerializable {
    * @param dst the destination byte array
    * @throws IndexOutOfBoundsException if the content of the Buffer cannot fit into the destination byte array
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
+  @Fluent
   Buffer getBytes(byte[] dst);
 
   /**
@@ -224,7 +296,8 @@ public interface Buffer extends ClusterSerializable {
    * @param dst the destination byte array
    * @throws IndexOutOfBoundsException if the content of the Buffer cannot fit into the destination byte array
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
+  @Fluent
   Buffer getBytes(byte[] dst, int dstIndex);
 
   /**
@@ -234,7 +307,8 @@ public interface Buffer extends ClusterSerializable {
    * @param dst the destination byte array
    * @throws IndexOutOfBoundsException if the content of the Buffer cannot fit into the destination byte array
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
+  @Fluent
   Buffer getBytes(int start, int end, byte[] dst);
 
   /**
@@ -244,7 +318,8 @@ public interface Buffer extends ClusterSerializable {
    * @param dst the destination byte array
    * @throws IndexOutOfBoundsException if the content of the Buffer cannot fit into the destination byte array
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
+  @Fluent
   Buffer getBytes(int start, int end, byte[] dst, int dstIndex);
 
   /**
@@ -285,7 +360,7 @@ public interface Buffer extends ClusterSerializable {
    * Appends the specified {@code byte[]} to the end of the Buffer. The buffer will expand as necessary to accommodate any bytes written.<p>
    * Returns a reference to {@code this} so multiple operations can be appended together.
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   @Fluent
   Buffer appendBytes(byte[] bytes);
 
@@ -294,7 +369,7 @@ public interface Buffer extends ClusterSerializable {
    * The buffer will expand as necessary to accommodate any bytes written.<p>
    * Returns a reference to {@code this} so multiple operations can be appended together.
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   @Fluent
   Buffer appendBytes(byte[] bytes, int offset, int len);
 
@@ -320,11 +395,39 @@ public interface Buffer extends ClusterSerializable {
   Buffer appendInt(int i);
 
   /**
+   * Appends the specified {@code int} to the end of the Buffer in the Little Endian Byte Order. The buffer will expand as necessary to accommodate any bytes written.<p>
+   * Returns a reference to {@code this} so multiple operations can be appended together.
+   */
+  @Fluent
+  Buffer appendIntLE(int i);
+
+  /**
    * Appends the specified unsigned {@code int} to the end of the Buffer. The buffer will expand as necessary to accommodate any bytes written.<p>
    * Returns a reference to {@code this} so multiple operations can be appended together.
    */
   @Fluent
   Buffer appendUnsignedInt(long i);
+
+  /**
+   * Appends the specified unsigned {@code int} to the end of the Buffer in the Little Endian Byte Order. The buffer will expand as necessary to accommodate any bytes written.<p>
+   * Returns a reference to {@code this} so multiple operations can be appended together.
+   */
+  @Fluent
+  Buffer appendUnsignedIntLE(long i);
+
+  /**
+   * Appends the specified 24bit {@code int} to the end of the Buffer. The buffer will expand as necessary to accommodate any bytes written.<p>
+   * Returns a reference to {@code this} so multiple operations can be appended together.
+   */
+  @Fluent
+  Buffer appendMedium(int i);
+
+  /**
+   * Appends the specified 24bit {@code int} to the end of the Buffer in the Little Endian Byte Order. The buffer will expand as necessary to accommodate any bytes written.<p>
+   * Returns a reference to {@code this} so multiple operations can be appended together.
+   */
+  @Fluent
+  Buffer appendMediumLE(int i);
 
   /**
    * Appends the specified {@code long} to the end of the Buffer. The buffer will expand as necessary to accommodate any bytes written.<p>
@@ -334,6 +437,13 @@ public interface Buffer extends ClusterSerializable {
   Buffer appendLong(long l);
 
   /**
+   * Appends the specified {@code long} to the end of the Buffer in the Little Endian Byte Order. The buffer will expand as necessary to accommodate any bytes written.<p>
+   * Returns a reference to {@code this} so multiple operations can be appended together.
+   */
+  @Fluent
+  Buffer appendLongLE(long l);
+
+  /**
    * Appends the specified {@code short} to the end of the Buffer.The buffer will expand as necessary to accommodate any bytes written.<p>
    * Returns a reference to {@code this} so multiple operations can be appended together.
    */
@@ -341,11 +451,25 @@ public interface Buffer extends ClusterSerializable {
   Buffer appendShort(short s);
 
   /**
+   * Appends the specified {@code short} to the end of the Buffer in the Little Endian Byte Order.The buffer will expand as necessary to accommodate any bytes written.<p>
+   * Returns a reference to {@code this} so multiple operations can be appended together.
+   */
+  @Fluent
+  Buffer appendShortLE(short s);
+
+  /**
    * Appends the specified unsigned {@code short} to the end of the Buffer.The buffer will expand as necessary to accommodate any bytes written.<p>
    * Returns a reference to {@code this} so multiple operations can be appended together.
    */
   @Fluent
   Buffer appendUnsignedShort(int s);
+
+  /**
+   * Appends the specified unsigned {@code short} to the end of the Buffer in the Little Endian Byte Order.The buffer will expand as necessary to accommodate any bytes written.<p>
+   * Returns a reference to {@code this} so multiple operations can be appended together.
+   */
+  @Fluent
+  Buffer appendUnsignedShortLE(int s);
 
   /**
    * Appends the specified {@code float} to the end of the Buffer. The buffer will expand as necessary to accommodate any bytes written.<p>
@@ -388,6 +512,7 @@ public interface Buffer extends ClusterSerializable {
    * Sets the unsigned {@code byte} at position {@code pos} in the Buffer to the value {@code b}.<p>
    * The buffer will expand as necessary to accommodate any value written.
    */
+  @Fluent
   Buffer setUnsignedByte(int pos, short b);
 
   /**
@@ -398,6 +523,13 @@ public interface Buffer extends ClusterSerializable {
   Buffer setInt(int pos, int i);
 
   /**
+   * Sets the {@code int} at position {@code pos} in the Buffer to the value {@code i} in the Little Endian Byte Order.<p>
+   * The buffer will expand as necessary to accommodate any value written.
+   */
+  @Fluent
+  Buffer setIntLE(int pos, int i);
+
+  /**
    * Sets the unsigned {@code int} at position {@code pos} in the Buffer to the value {@code i}.<p>
    * The buffer will expand as necessary to accommodate any value written.
    */
@@ -405,11 +537,39 @@ public interface Buffer extends ClusterSerializable {
   Buffer setUnsignedInt(int pos, long i);
 
   /**
+   * Sets the unsigned {@code int} at position {@code pos} in the Buffer to the value {@code i} in the Little Endian Byte Order.<p>
+   * The buffer will expand as necessary to accommodate any value written.
+   */
+  @Fluent
+  Buffer setUnsignedIntLE(int pos, long i);
+
+  /**
+   * Sets the 24bit {@code int} at position {@code pos} in the Buffer to the value {@code i}.<p>
+   * The buffer will expand as necessary to accommodate any value written.
+   */
+  @Fluent
+  Buffer setMedium(int pos, int i);
+
+  /**
+   * Sets the 24bit {@code int} at position {@code pos} in the Buffer to the value {@code i}. in the Little Endian Byte Order<p>
+   * The buffer will expand as necessary to accommodate any value written.
+   */
+  @Fluent
+  Buffer setMediumLE(int pos, int i);
+
+  /**
    * Sets the {@code long} at position {@code pos} in the Buffer to the value {@code l}.<p>
    * The buffer will expand as necessary to accommodate any value written.
    */
   @Fluent
   Buffer setLong(int pos, long l);
+
+  /**
+   * Sets the {@code long} at position {@code pos} in the Buffer to the value {@code l} in the Little Endian Byte Order.<p>
+   * The buffer will expand as necessary to accommodate any value written.
+   */
+  @Fluent
+  Buffer setLongLE(int pos, long l);
 
   /**
    * Sets the {@code double} at position {@code pos} in the Buffer to the value {@code d}.<p>
@@ -433,11 +593,25 @@ public interface Buffer extends ClusterSerializable {
   Buffer setShort(int pos, short s);
 
   /**
+   * Sets the {@code short} at position {@code pos} in the Buffer to the value {@code s} in the Little Endian Byte Order.<p>
+   * The buffer will expand as necessary to accommodate any value written.
+   */
+  @Fluent
+  Buffer setShortLE(int pos, short s);
+
+  /**
    * Sets the unsigned {@code short} at position {@code pos} in the Buffer to the value {@code s}.<p>
    * The buffer will expand as necessary to accommodate any value written.
    */
   @Fluent
   Buffer setUnsignedShort(int pos, int s);
+
+  /**
+   * Sets the unsigned {@code short} at position {@code pos} in the Buffer to the value {@code s} in the Little Endian Byte Order.<p>
+   * The buffer will expand as necessary to accommodate any value written.
+   */
+  @Fluent
+  Buffer setUnsignedShortLE(int pos, int s);
 
   /**
    * Sets the bytes at position {@code pos} in the Buffer to the bytes represented by the {@code Buffer b}.<p>
@@ -457,7 +631,7 @@ public interface Buffer extends ClusterSerializable {
    * Sets the bytes at position {@code pos} in the Buffer to the bytes represented by the {@code ByteBuffer b}.<p>
    * The buffer will expand as necessary to accommodate any value written.
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   @Fluent
   Buffer setBytes(int pos, ByteBuffer b);
 
@@ -465,7 +639,7 @@ public interface Buffer extends ClusterSerializable {
    * Sets the bytes at position {@code pos} in the Buffer to the bytes represented by the {@code byte[] b}.<p>
    * The buffer will expand as necessary to accommodate any value written.
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   @Fluent
   Buffer setBytes(int pos, byte[] b);
 
@@ -473,7 +647,7 @@ public interface Buffer extends ClusterSerializable {
    * Sets the given number of bytes at position {@code pos} in the Buffer to the bytes represented by the {@code byte[] b}.<p></p>
    * The buffer will expand as necessary to accommodate any value written.
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   @Fluent
   Buffer setBytes(int pos, byte[] b, int offset, int len);
 
@@ -519,11 +693,13 @@ public interface Buffer extends ClusterSerializable {
   /**
    * Returns the Buffer as a Netty {@code ByteBuf}.<p>
    * The returned buffer is a duplicate.<p>
-   * This method is meant for internal use only.
+   * The returned {@code ByteBuf} might have its {@code readerIndex > 0}
+   * This method is meant for internal use only.<p>
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   ByteBuf getByteBuf();
 
-  static final BufferFactory factory = ServiceHelper.loadFactory(BufferFactory.class);
+  @GenIgnore
+  BufferFactory factory = ServiceHelper.loadFactory(BufferFactory.class);
 
 }

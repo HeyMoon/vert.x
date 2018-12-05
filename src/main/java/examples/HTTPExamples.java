@@ -1,26 +1,25 @@
 /*
- * Copyright 2014 Red Hat, Inc.
+ * Copyright (c) 2014 Red Hat, Inc. and others
  *
- *  All rights reserved. This program and the accompanying materials
- *  are made available under the terms of the Eclipse Public License v1.0
- *  and Apache License v2.0 which accompanies this distribution.
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *  The Eclipse Public License is available at
- *  http://www.eclipse.org/legal/epl-v10.html
- *
- *  The Apache License v2.0 is available at
- *  http://www.opensource.org/licenses/apache2.0.php
- *
- *  You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package examples;
 
+import io.vertx.core.Future;
 import io.vertx.core.MultiMap;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.file.AsyncFile;
 import io.vertx.core.http.*;
+import io.vertx.core.net.JksOptions;
+import io.vertx.core.net.ProxyOptions;
+import io.vertx.core.net.ProxyType;
 import io.vertx.core.streams.Pump;
 
 /**
@@ -36,6 +35,13 @@ public class HTTPExamples {
   public void example2(Vertx vertx) {
 
     HttpServerOptions options = new HttpServerOptions().setMaxWebsocketFrameSize(1000000);
+
+    HttpServer server = vertx.createHttpServer(options);
+  }
+
+  public void exampleServerLogging(Vertx vertx) {
+
+    HttpServerOptions options = new HttpServerOptions().setLogActivity(true);
 
     HttpServer server = vertx.createHttpServer(options);
   }
@@ -290,13 +296,21 @@ public class HTTPExamples {
     HttpClient client = vertx.createHttpClient(options);
   }
 
+  public void exampleClientLogging(Vertx vertx) {
+    HttpClientOptions options = new HttpClientOptions().setLogActivity(true);
+    HttpClient client = vertx.createHttpClient(options);
+  }
+
   public void example30(Vertx vertx) {
     // Set the default host
     HttpClientOptions options = new HttpClientOptions().setDefaultHost("wibble.com");
     // Can also set default port if you want...
     HttpClient client = vertx.createHttpClient(options);
-    client.getNow("/some-uri", response -> {
-      System.out.println("Received response with status code " + response.statusCode());
+    client.getNow("/some-uri", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
     });
   }
 
@@ -304,13 +318,19 @@ public class HTTPExamples {
     HttpClient client = vertx.createHttpClient();
 
     // Specify both port and host name
-    client.getNow(8080, "myserver.mycompany.com", "/some-uri", response -> {
-      System.out.println("Received response with status code " + response.statusCode());
+    client.getNow(8080, "myserver.mycompany.com", "/some-uri", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
     });
 
     // This time use the default port 80 but specify the host name
-    client.getNow("foo.othercompany.com", "/other-uri", response -> {
-      System.out.println("Received response with status code " + response.statusCode());
+    client.getNow("foo.othercompany.com", "/other-uri", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
     });
   }
 
@@ -318,13 +338,19 @@ public class HTTPExamples {
     HttpClient client = vertx.createHttpClient();
 
     // Send a GET request
-    client.getNow("/some-uri", response -> {
-      System.out.println("Received response with status code " + response.statusCode());
+    client.getNow("/some-uri", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
     });
 
     // Send a GET request
-    client.headNow("/other-uri", response -> {
-      System.out.println("Received response with status code " + response.statusCode());
+    client.headNow("/other-uri", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
     });
 
   }
@@ -332,20 +358,29 @@ public class HTTPExamples {
   public void example33(Vertx vertx) {
     HttpClient client = vertx.createHttpClient();
 
-    client.request(HttpMethod.GET, "some-uri", response -> {
-      System.out.println("Received response with status code " + response.statusCode());
+    client.request(HttpMethod.GET, "some-uri", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
     }).end();
 
-    client.request(HttpMethod.POST, "foo-uri", response -> {
-      System.out.println("Received response with status code " + response.statusCode());
+    client.request(HttpMethod.POST, "foo-uri", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
     }).end("some-data");
   }
 
   public void example34(Vertx vertx, String body) {
     HttpClient client = vertx.createHttpClient();
 
-    HttpClientRequest request = client.post("some-uri", response -> {
-      System.out.println("Received response with status code " + response.statusCode());
+    HttpClientRequest request = client.post("some-uri", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
     });
 
     // Now do stuff with the request
@@ -358,14 +393,20 @@ public class HTTPExamples {
 
     // Or fluently:
 
-    client.post("some-uri", response -> {
-      System.out.println("Received response with status code " + response.statusCode());
+    client.post("some-uri", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
     }).putHeader("content-length", "1000").putHeader("content-type", "text/plain").write(body).end();
 
     // Or event more simply:
 
-    client.post("some-uri", response -> {
-      System.out.println("Received response with status code " + response.statusCode());
+    client.post("some-uri", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
     }).putHeader("content-type", "text/plain").end(body);
 
   }
@@ -440,8 +481,11 @@ public class HTTPExamples {
 
   public void example42(HttpClient client) {
 
-    HttpClientRequest request = client.post("some-uri", response -> {
-      System.out.println("Received response with status code " + response.statusCode());
+    HttpClientRequest request = client.post("some-uri", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
     });
     request.exceptionHandler(e -> {
       System.out.println("Received exception: " + e.getMessage());
@@ -449,15 +493,18 @@ public class HTTPExamples {
     });
   }
 
-  public void  statusCodeHandling(HttpClient client) {
-    HttpClientRequest request = client.post("some-uri", response -> {
-      if (response.statusCode() == 200) {
-        System.out.println("Everything fine");
-        return;
-      }
-      if (response.statusCode() == 500) {
-        System.out.println("Unexpected behavior on the server side");
-        return;
+  public void statusCodeHandling(HttpClient client) {
+    HttpClientRequest request = client.post("some-uri", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        if (response.statusCode() == 200) {
+          System.out.println("Everything fine");
+          return;
+        }
+        if (response.statusCode() == 500) {
+          System.out.println("Unexpected behavior on the server side");
+          return;
+        }
       }
     });
     request.end();
@@ -466,8 +513,11 @@ public class HTTPExamples {
   public void example43(HttpClient client) {
 
     HttpClientRequest request = client.post("some-uri");
-    request.handler(response -> {
-      System.out.println("Received response with status code " + response.statusCode());
+    request.handler(ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
     });
   }
 
@@ -482,12 +532,16 @@ public class HTTPExamples {
 
   public void example45(HttpClient client) {
 
-    client.getNow("some-uri", response -> {
-      // the status code - e.g. 200 or 404
-      System.out.println("Status code is " + response.statusCode());
+    client.getNow("some-uri", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
 
-      // the status message e.g. "OK" or "Not Found".
-      System.out.println("Status message is " + response.statusMessage());
+        // the status code - e.g. 200 or 404
+        System.out.println("Status code is " + response.statusCode());
+
+        // the status message e.g. "OK" or "Not Found".
+        System.out.println("Status message is " + response.statusMessage());
+      }
     });
 
   }
@@ -501,49 +555,109 @@ public class HTTPExamples {
 
   public void example47(HttpClient client) {
 
-    client.getNow("some-uri", response -> {
+    client.getNow("some-uri", ar -> {
 
-      response.handler(buffer -> {
-        System.out.println("Received a part of the response body: " + buffer);
-      });
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        response.handler(buffer -> {
+          System.out.println("Received a part of the response body: " + buffer);
+        });
+      }
     });
   }
 
   public void example48(HttpClient client) {
 
-    client.getNow("some-uri", response -> {
+    client.getNow("some-uri", ar -> {
 
-      // Create an empty buffer
-      Buffer totalBuffer = Buffer.buffer();
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
 
-      response.handler(buffer -> {
-        System.out.println("Received a part of the response body: " + buffer.length());
+        // Create an empty buffer
+        Buffer totalBuffer = Buffer.buffer();
 
-        totalBuffer.appendBuffer(buffer);
-      });
+        response.handler(buffer -> {
+          System.out.println("Received a part of the response body: " + buffer.length());
 
-      response.endHandler(v -> {
-        // Now all the body has been read
-        System.out.println("Total response body length is " + totalBuffer.length());
-      });
+          totalBuffer.appendBuffer(buffer);
+        });
+
+        response.endHandler(v -> {
+          // Now all the body has been read
+          System.out.println("Total response body length is " + totalBuffer.length());
+        });
+      }
     });
   }
 
   public void example49(HttpClient client) {
 
-    client.getNow("some-uri", response -> {
+    client.getNow("some-uri", ar -> {
 
-      response.bodyHandler(totalBuffer -> {
-        // Now all the body has been read
-        System.out.println("Total response body length is " + totalBuffer.length());
-      });
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        response.bodyHandler(totalBuffer -> {
+          // Now all the body has been read
+          System.out.println("Total response body length is " + totalBuffer.length());
+        });
+      }
+    });
+  }
+
+  public void exampleFollowRedirect01(HttpClient client) {
+
+    client.get("some-uri", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
+    }).setFollowRedirects(true).end();
+  }
+
+  public void exampleFollowRedirect02(Vertx vertx) {
+
+    HttpClient client = vertx.createHttpClient(
+        new HttpClientOptions()
+            .setMaxRedirects(32));
+
+    client.get("some-uri", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
+    }).setFollowRedirects(true).end();
+  }
+
+  private String resolveURI(String base, String uriRef) {
+    throw new UnsupportedOperationException();
+  }
+
+  public void exampleFollowRedirect03(HttpClient client) {
+
+    client.redirectHandler(response -> {
+
+      // Only follow 301 code
+      if (response.statusCode() == 301 && response.getHeader("Location") != null) {
+
+        // Compute the redirect URI
+        String absoluteURI = resolveURI(response.request().absoluteURI(), response.getHeader("Location"));
+
+        // Create a new ready to use request that the client will use
+        return Future.succeededFuture(client.getAbs(absoluteURI));
+      }
+
+      // We don't redirect
+      return null;
     });
   }
 
   public void example50(HttpClient client) {
 
-    HttpClientRequest request = client.put("some-uri", response -> {
-      System.out.println("Received response with status code " + response.statusCode());
+    HttpClientRequest request = client.put("some-uri", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
     });
 
     request.putHeader("Expect", "100-Continue");
@@ -643,10 +757,13 @@ public class HTTPExamples {
   }
 
   public void example55(WebSocket websocket) {
-    // Write a simple message
+    // Write a simple binary message
     Buffer buffer = Buffer.buffer().appendInt(123).appendFloat(1.23f);
-
     websocket.writeBinaryMessage(buffer);
+
+    // Write a simple text message
+    String message = "hello";
+    websocket.writeTextMessage(message);
   }
 
   public void example56(WebSocket websocket, Buffer buffer1, Buffer buffer2, Buffer buffer3) {
@@ -675,13 +792,46 @@ public class HTTPExamples {
 
     websocket.writeFinalBinaryFrame(buff);
 
-
   }
 
   public void example57(WebSocket websocket) {
 
     websocket.frameHandler(frame -> {
       System.out.println("Received a frame of size!");
+    });
+
+  }
+
+  public void example58(Vertx vertx) {
+
+    HttpClientOptions options = new HttpClientOptions()
+        .setProxyOptions(new ProxyOptions().setType(ProxyType.HTTP)
+            .setHost("localhost").setPort(3128)
+            .setUsername("username").setPassword("secret"));
+    HttpClient client = vertx.createHttpClient(options);
+
+  }
+
+  public void example59(Vertx vertx) {
+
+    HttpClientOptions options = new HttpClientOptions()
+        .setProxyOptions(new ProxyOptions().setType(ProxyType.SOCKS5)
+            .setHost("localhost").setPort(1080)
+            .setUsername("username").setPassword("secret"));
+    HttpClient client = vertx.createHttpClient(options);
+
+  }
+
+  public void example60(Vertx vertx) {
+
+    HttpClientOptions options = new HttpClientOptions()
+        .setProxyOptions(new ProxyOptions().setType(ProxyType.HTTP));
+    HttpClient client = vertx.createHttpClient(options);
+    client.getAbs("ftp://ftp.gnu.org/gnu/", ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
     });
 
   }
@@ -694,12 +844,34 @@ public class HTTPExamples {
 
   public void serversharingclient(Vertx vertx) {
     vertx.setPeriodic(100, (l) -> {
-      vertx.createHttpClient().getNow(8080, "localhost", "/", resp -> {
-        resp.bodyHandler(body -> {
-          System.out.println(body.toString("ISO-8859-1"));
-        });
+      vertx.createHttpClient().getNow(8080, "localhost", "/", ar -> {
+        if (ar.succeeded()) {
+          HttpClientResponse resp = ar.result();
+          resp.bodyHandler(body -> {
+            System.out.println(body.toString("ISO-8859-1"));
+          });
+        }
       });
     });
   }
 
+  public void setSSLPerRequest(HttpClient client) {
+    client.getNow(new RequestOptions()
+        .setHost("localhost")
+        .setPort(8080)
+        .setURI("/")
+        .setSsl(true), ar -> {
+      if (ar.succeeded()) {
+        HttpClientResponse response = ar.result();
+        System.out.println("Received response with status code " + response.statusCode());
+      }
+    });
+  }
+
+  public static void setIdentityContentEncodingHeader(HttpServerRequest request) {
+    // Disable compression and send an image
+    request.response()
+      .putHeader(HttpHeaders.CONTENT_ENCODING, HttpHeaders.IDENTITY)
+      .sendFile("/path/to/image.jpg");
+  }
 }

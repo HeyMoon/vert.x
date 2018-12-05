@@ -1,17 +1,12 @@
 /*
- * Copyright (c) 2009 Red Hat, Inc.
- * -------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2009 Red Hat, Inc. and others
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core.logging;
@@ -31,6 +26,11 @@ public class JULLogDelegate implements LogDelegate {
 
   JULLogDelegate(final String name) {
     logger = java.util.logging.Logger.getLogger(name);
+  }
+
+  @Override
+  public boolean isWarnEnabled() {
+    return logger.isLoggable(Level.WARNING);
   }
 
   public boolean isInfoEnabled() {
@@ -154,7 +154,12 @@ public class JULLogDelegate implements LogDelegate {
     String msg = (message == null) ? "NULL" : message.toString();
     LogRecord record = new LogRecord(level, msg);
     record.setLoggerName(logger.getName());
-    record.setThrown(t);
+    if (t != null) {
+      record.setThrown(t);
+    } else if (params != null && params.length != 0 && params[params.length - 1] instanceof Throwable) {
+      // The exception may be the last parameters (SLF4J uses this convention).
+      record.setThrown((Throwable) params[params.length - 1]);
+    }
     // This will disable stack trace lookup inside JUL. If someone wants location info, they can use their own formatter
     // or use a different logging framework like sl4j, or log4j
     record.setSourceClassName(null);
@@ -163,6 +168,11 @@ public class JULLogDelegate implements LogDelegate {
   }
 
   private void log(Level level, Object message, Throwable t) {
-    log(level, message, t, null);
+    log(level, message, t, (Object[]) null);
+  }
+
+  @Override
+  public Object unwrap() {
+    return logger;
   }
 }

@@ -1,36 +1,34 @@
 /*
- * Copyright (c) 2011-2013 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core.impl;
 
 
 import io.netty.channel.EventLoopGroup;
-import io.vertx.core.AsyncResult;
-import io.vertx.core.Handler;
-import io.vertx.core.Vertx;
+import io.netty.resolver.AddressResolverGroup;
+import io.vertx.core.*;
 import io.vertx.core.http.impl.HttpServerImpl;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.net.impl.NetServerImpl;
 import io.vertx.core.net.impl.ServerID;
+import io.vertx.core.net.impl.transport.Transport;
 import io.vertx.core.spi.cluster.ClusterManager;
 import io.vertx.core.spi.metrics.VertxMetrics;
 
 import java.io.File;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * This interface provides services for vert.x core internal use only
@@ -42,7 +40,7 @@ import java.util.concurrent.ExecutorService;
 public interface VertxInternal extends Vertx {
 
   @Override
-  ContextImpl getOrCreateContext();
+  ContextInternal getOrCreateContext();
 
   EventLoopGroup getEventLoopGroup();
 
@@ -56,21 +54,35 @@ public interface VertxInternal extends Vertx {
 
   VertxMetrics metricsSPI();
 
-	/**
-	 * Get the current context
-	 * @return the context
-	 */
-	ContextImpl getContext();
+  Transport transport();
+
+  /**
+   * Get the current context
+   * @return the context
+   */
+  ContextInternal getContext();
 
   /**
    * @return event loop context
    */
-  EventLoopContext createEventLoopContext(String deploymentID, JsonObject config, ClassLoader tccl);
+  EventLoopContext createEventLoopContext(String deploymentID, WorkerPool workerPool, JsonObject config, ClassLoader tccl);
 
   /**
    * @return worker loop context
    */
-  ContextImpl createWorkerContext(boolean multiThreaded, String deploymentID, JsonObject config, ClassLoader tccl);
+  ContextImpl createWorkerContext(boolean multiThreaded, String deploymentID, WorkerPool pool, JsonObject config, ClassLoader tccl);
+
+  @Override
+  WorkerExecutorInternal createSharedWorkerExecutor(String name);
+
+  @Override
+  WorkerExecutorInternal createSharedWorkerExecutor(String name, int poolSize);
+
+  @Override
+  WorkerExecutorInternal createSharedWorkerExecutor(String name, int poolSize, long maxExecuteTime);
+
+  @Override
+  WorkerExecutorInternal createSharedWorkerExecutor(String name, int poolSize, long maxExecuteTime, TimeUnit maxExecuteTimeUnit);
 
   void simulateKill();
 
@@ -86,8 +98,34 @@ public interface VertxInternal extends Vertx {
 
   File resolveFile(String fileName);
 
-  <T> void executeBlockingInternal(Action<T> action, Handler<AsyncResult<T>> resultHandler);
+  /**
+   * Like {@link #executeBlocking(Handler, Handler)} but using the internal worker thread pool.
+   */
+  <T> void executeBlockingInternal(Handler<Future<T>> blockingCodeHandler, Handler<AsyncResult<T>> resultHandler);
 
   ClusterManager getClusterManager();
 
+  HAManager haManager();
+
+  /**
+   * Resolve an address (e.g. {@code vertx.io} into the first found A (IPv4) or AAAA (IPv6) record.
+   *
+   * @param hostname the hostname to resolve
+   * @param resultHandler the result handler
+   */
+  void resolveAddress(String hostname, Handler<AsyncResult<InetAddress>> resultHandler);
+
+  /**
+   * @return the address resolver
+   */
+  AddressResolver addressResolver();
+
+  /**
+   * @return the Netty {@code AddressResolverGroup} to use in a Netty {@code Bootstrap}
+   */
+  AddressResolverGroup<InetSocketAddress> nettyAddressResolverGroup();
+
+  void addCloseHook(Closeable hook);
+
+  void removeCloseHook(Closeable hook);
 }

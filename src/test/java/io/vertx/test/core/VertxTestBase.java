@@ -1,44 +1,39 @@
 /*
- * Copyright (c) 2011-2014 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.test.core;
 
 import io.vertx.core.AbstractVerticle;
+import io.vertx.core.AsyncResult;
 import io.vertx.core.Context;
 import io.vertx.core.DeploymentOptions;
+import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
-import io.vertx.core.VertxException;
 import io.vertx.core.VertxOptions;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
-import io.vertx.core.net.PemTrustOptions;
 import io.vertx.core.net.JksOptions;
-import io.vertx.core.net.PemKeyCertOptions;
 import io.vertx.core.net.KeyCertOptions;
+import io.vertx.core.net.PemKeyCertOptions;
 import io.vertx.core.net.PfxOptions;
 import io.vertx.core.net.TCPSSLOptions;
-import io.vertx.core.net.TrustOptions;
 import io.vertx.core.spi.cluster.ClusterManager;
 import io.vertx.test.fakecluster.FakeClusterManager;
 import org.junit.Rule;
 
-import java.io.File;
-import java.net.URISyntaxException;
-import java.net.URL;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocketFactory;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -49,6 +44,8 @@ import java.util.concurrent.TimeUnit;
  */
 public class VertxTestBase extends AsyncTestBase {
 
+  public static final boolean USE_NATIVE_TRANSPORT = Boolean.getBoolean("vertx.useNativeTransport");
+  public static final boolean USE_DOMAIN_SOCKETS = Boolean.getBoolean("vertx.useDomainSockets");
   private static final Logger log = LoggerFactory.getLogger(VertxTestBase.class);
 
   @Rule
@@ -58,51 +55,92 @@ public class VertxTestBase extends AsyncTestBase {
 
   protected Vertx[] vertices;
 
+  private List<Vertx> created;
+
   protected void vinit() {
     vertx = null;
     vertices = null;
+    created = null;
   }
 
   public void setUp() throws Exception {
     super.setUp();
     vinit();
-    vertx = Vertx.vertx(getOptions());
+    VertxOptions options = getOptions();
+    boolean nativeTransport = options.getPreferNativeTransport();
+    vertx = Vertx.vertx(options);
+    if (nativeTransport) {
+      assertTrue(vertx.isNativeTransportEnabled());
+    }
   }
 
   protected VertxOptions getOptions() {
-    return new VertxOptions();
+    VertxOptions options = new VertxOptions();
+    options.setPreferNativeTransport(USE_NATIVE_TRANSPORT);
+    return options;
   }
 
   protected void tearDown() throws Exception {
     if (vertx != null) {
-      CountDownLatch latch = new CountDownLatch(1);
-      vertx.close(ar -> {
-        latch.countDown();
-      });
-      awaitLatch(latch);
+      close(vertx);
     }
-    if (vertices != null) {
-      int numVertices = 0;
-      for (int i = 0; i < vertices.length; i++) {
-        if (vertices[i] != null) {
-          numVertices++;
-        }
-      }
-      CountDownLatch latch = new CountDownLatch(numVertices);
-      for (Vertx vertx: vertices) {
-        if (vertx != null) {
-          vertx.close(ar -> {
-            if (ar.failed()) {
-              log.error("Failed to shutdown vert.x", ar.cause());
-            }
-            latch.countDown();
-          });
-        }
-      }
-      assertTrue(latch.await(180, TimeUnit.SECONDS));
+    if (created != null) {
+      closeClustered(created);
     }
     FakeClusterManager.reset(); // Bit ugly
     super.tearDown();
+  }
+
+  protected void closeClustered(List<Vertx> clustered) throws Exception {
+    CountDownLatch latch = new CountDownLatch(clustered.size());
+    for (Vertx clusteredVertx : clustered) {
+      clusteredVertx.close(ar -> {
+        if (ar.failed()) {
+          log.error("Failed to shutdown vert.x", ar.cause());
+        }
+        latch.countDown();
+      });
+    }
+    assertTrue(latch.await(180, TimeUnit.SECONDS));
+  }
+
+  /**
+   * @return create a blank new Vert.x instance with no options closed when tear down executes.
+   */
+  protected Vertx vertx() {
+    if (created == null) {
+      created = new ArrayList<>();
+    }
+    Vertx vertx = Vertx.vertx();
+    created.add(vertx);
+    return vertx;
+  }
+
+  /**
+   * @return create a blank new Vert.x instance with @{@code options} closed when tear down executes.
+   */
+  protected Vertx vertx(VertxOptions options) {
+    if (created == null) {
+      created = new ArrayList<>();
+    }
+    Vertx vertx = Vertx.vertx(options);
+    created.add(vertx);
+    return vertx;
+  }
+
+  /**
+   * Create a blank new clustered Vert.x instance with @{@code options} closed when tear down executes.
+   */
+  protected void clusteredVertx(VertxOptions options, Handler<AsyncResult<Vertx>> ar) {
+    if (created == null) {
+      created = Collections.synchronizedList(new ArrayList<>());
+    }
+    Vertx.clusteredVertx(options, event -> {
+      if (event.succeeded()) {
+        created.add(event.result());
+      }
+      ar.handle(event);
+    });
   }
 
   protected ClusterManager getClusterManager() {
@@ -118,14 +156,18 @@ public class VertxTestBase extends AsyncTestBase {
     vertices = new Vertx[numNodes];
     for (int i = 0; i < numNodes; i++) {
       int index = i;
-      Vertx.clusteredVertx(options.setClusterHost("localhost").setClusterPort(0).setClustered(true)
+      clusteredVertx(options.setClusterHost("localhost").setClusterPort(0).setClustered(true)
         .setClusterManager(getClusterManager()), ar -> {
-        if (ar.failed()) {
-          ar.cause().printStackTrace();
-        }
-        assertTrue("Failed to start node", ar.succeeded());
-        vertices[index] = ar.result();
-        latch.countDown();
+          try {
+            if (ar.failed()) {
+              ar.cause().printStackTrace();
+            }
+            assertTrue("Failed to start node", ar.succeeded());
+            vertices[index] = ar.result();
+          }
+          finally {
+            latch.countDown();
+          }
       });
     }
     try {
@@ -136,20 +178,7 @@ public class VertxTestBase extends AsyncTestBase {
   }
 
 
-  protected String findFileOnClasspath(String fileName) {
-    URL url = getClass().getClassLoader().getResource(fileName);
-    if (url == null) {
-      throw new IllegalArgumentException("Cannot find file " + fileName + " on classpath");
-    }
-    try {
-      File file = new File(url.toURI());
-      return file.getAbsolutePath();
-    } catch (URISyntaxException e) {
-      throw new VertxException(e);
-    }
-  }
-
-  protected void setOptions(TCPSSLOptions sslOptions, KeyCertOptions options) {
+  protected static void setOptions(TCPSSLOptions sslOptions, KeyCertOptions options) {
     if (options instanceof JksOptions) {
       sslOptions.setKeyStoreOptions((JksOptions) options);
     } else if (options instanceof PfxOptions) {
@@ -159,166 +188,17 @@ public class VertxTestBase extends AsyncTestBase {
     }
   }
 
-  protected void setOptions(TCPSSLOptions sslOptions, TrustOptions options) {
-    if (options instanceof JksOptions) {
-      sslOptions.setTrustStoreOptions((JksOptions) options);
-    } else if (options instanceof PfxOptions) {
-      sslOptions.setPfxTrustOptions((PfxOptions) options);
-    } else {
-      sslOptions.setPemTrustOptions((PemTrustOptions) options);
-    }
-  }
+  protected static final String[] ENABLED_CIPHER_SUITES;
 
-  protected TrustOptions getClientTrustOptions(Trust trust) {
-    switch (trust) {
-      case JKS:
-        return new JksOptions().setPath(findFileOnClasspath("tls/client-truststore.jks")).setPassword("wibble");
-      case JKS_CA:
-        return new JksOptions().setPath(findFileOnClasspath("tls/client-truststore-ca.jks")).setPassword("wibble");
-      case PKCS12:
-        return new PfxOptions().setPath(findFileOnClasspath("tls/client-truststore.p12")).setPassword("wibble");
-      case PKCS12_CA:
-        return new PfxOptions().setPath(findFileOnClasspath("tls/client-truststore-ca.p12")).setPassword("wibble");
-      case PEM:
-        return new PemTrustOptions().addCertPath(findFileOnClasspath("tls/server-cert.pem"));
-      case PEM_CA:
-        return new PemTrustOptions().addCertPath(findFileOnClasspath("tls/ca/ca-cert.pem"));
-      default:
-        return null;
+  static {
+    String[] suites = new String[0];
+    try {
+      suites = SSLContext.getDefault().getSocketFactory().getSupportedCipherSuites();
+    } catch (NoSuchAlgorithmException e) {
+      e.printStackTrace();
     }
+    ENABLED_CIPHER_SUITES = suites;
   }
-
-  protected KeyCertOptions getClientCertOptions(KeyCert cert) {
-    switch (cert) {
-      case JKS:
-        return new JksOptions().setPath(findFileOnClasspath("tls/client-keystore.jks")).setPassword("wibble");
-      case JKS_CA:
-        throw new UnsupportedOperationException();
-      case PKCS12:
-        return new PfxOptions().setPath(findFileOnClasspath("tls/client-keystore.p12")).setPassword("wibble");
-      case PKCS12_CA:
-        throw new UnsupportedOperationException();
-      case PEM:
-        return new PemKeyCertOptions().setKeyPath(findFileOnClasspath("tls/client-key.pem")).setCertPath(findFileOnClasspath("tls/client-cert.pem"));
-      case PEM_CA:
-        return new PemKeyCertOptions().setKeyPath(findFileOnClasspath("tls/client-key.pem")).setCertPath(findFileOnClasspath("tls/client-cert-ca.pem"));
-      default:
-        return null;
-    }
-  }
-
-  protected TrustOptions getServerTrustOptions(Trust trust) {
-    switch (trust) {
-      case JKS:
-        return new JksOptions().setPath(findFileOnClasspath("tls/server-truststore.jks")).setPassword("wibble");
-      case JKS_CA:
-        throw new UnsupportedOperationException();
-      case PKCS12:
-        return new PfxOptions().setPath(findFileOnClasspath("tls/server-truststore.p12")).setPassword("wibble");
-      case PKCS12_CA:
-        throw new UnsupportedOperationException();
-      case PEM:
-        return new PemTrustOptions().addCertPath(findFileOnClasspath("tls/client-cert.pem"));
-      case PEM_CA:
-        return new PemTrustOptions().addCertPath(findFileOnClasspath("tls/ca/ca-cert.pem"));
-      default:
-        return null;
-    }
-  }
-
-  protected KeyCertOptions getServerCertOptions(KeyCert cert) {
-    switch (cert) {
-      case JKS:
-        return new JksOptions().setPath(findFileOnClasspath("tls/server-keystore.jks")).setPassword("wibble");
-      case JKS_CA:
-        return new JksOptions().setPath(findFileOnClasspath("tls/server-keystore-ca.jks")).setPassword("wibble");
-      case PKCS12:
-        return new PfxOptions().setPath(findFileOnClasspath("tls/server-keystore.p12")).setPassword("wibble");
-      case PKCS12_CA:
-        return new PfxOptions().setPath(findFileOnClasspath("tls/server-keystore-ca.p12")).setPassword("wibble");
-      case PEM:
-        return new PemKeyCertOptions().setKeyPath(findFileOnClasspath("tls/server-key.pem")).setCertPath(findFileOnClasspath("tls/server-cert.pem"));
-      case PEM_CA:
-        return new PemKeyCertOptions().setKeyPath(findFileOnClasspath("tls/server-key.pem")).setCertPath(findFileOnClasspath("tls/server-cert-ca.pem"));
-      default:
-        return null;
-    }
-  }
-
-  protected static final String[] ENABLED_CIPHER_SUITES =
-    new String[] {
-      "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256",
-      "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256",
-      "TLS_RSA_WITH_AES_128_CBC_SHA256",
-      "TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256",
-      "TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256",
-      "TLS_DHE_RSA_WITH_AES_128_CBC_SHA256",
-      "TLS_DHE_DSS_WITH_AES_128_CBC_SHA256",
-      "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA",
-      "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA",
-      "TLS_RSA_WITH_AES_128_CBC_SHA",
-      "TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA",
-      "TLS_ECDH_RSA_WITH_AES_128_CBC_SHA",
-      "TLS_DHE_RSA_WITH_AES_128_CBC_SHA",
-      "TLS_DHE_DSS_WITH_AES_128_CBC_SHA",
-      "TLS_ECDHE_ECDSA_WITH_RC4_128_SHA",
-      "TLS_ECDHE_RSA_WITH_RC4_128_SHA",
-      "SSL_RSA_WITH_RC4_128_SHA",
-      "TLS_ECDH_ECDSA_WITH_RC4_128_SHA",
-      "TLS_ECDH_RSA_WITH_RC4_128_SHA",
-      "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
-      "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
-      "TLS_RSA_WITH_AES_128_GCM_SHA256",
-      "TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256",
-      "TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256",
-      "TLS_DHE_RSA_WITH_AES_128_GCM_SHA256",
-      "TLS_DHE_DSS_WITH_AES_128_GCM_SHA256",
-      "TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA",
-      "TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA",
-      "SSL_RSA_WITH_3DES_EDE_CBC_SHA",
-      "TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA",
-      "TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA",
-      "SSL_DHE_RSA_WITH_3DES_EDE_CBC_SHA",
-      "SSL_DHE_DSS_WITH_3DES_EDE_CBC_SHA",
-      "SSL_RSA_WITH_RC4_128_MD5",
-      "TLS_EMPTY_RENEGOTIATION_INFO_SCSV",
-      "TLS_DH_anon_WITH_AES_128_GCM_SHA256",
-      "TLS_DH_anon_WITH_AES_128_CBC_SHA256",
-      "TLS_ECDH_anon_WITH_AES_128_CBC_SHA",
-      "TLS_DH_anon_WITH_AES_128_CBC_SHA",
-      "TLS_ECDH_anon_WITH_RC4_128_SHA",
-      "SSL_DH_anon_WITH_RC4_128_MD5",
-      "TLS_ECDH_anon_WITH_3DES_EDE_CBC_SHA",
-      "SSL_DH_anon_WITH_3DES_EDE_CBC_SHA",
-      "TLS_RSA_WITH_NULL_SHA256",
-      "TLS_ECDHE_ECDSA_WITH_NULL_SHA",
-      "TLS_ECDHE_RSA_WITH_NULL_SHA",
-      "SSL_RSA_WITH_NULL_SHA",
-      "TLS_ECDH_ECDSA_WITH_NULL_SHA",
-      "TLS_ECDH_RSA_WITH_NULL_SHA",
-      "TLS_ECDH_anon_WITH_NULL_SHA",
-      "SSL_RSA_WITH_NULL_MD5",
-      "SSL_RSA_WITH_DES_CBC_SHA",
-      "SSL_DHE_RSA_WITH_DES_CBC_SHA",
-      "SSL_DHE_DSS_WITH_DES_CBC_SHA",
-      "SSL_DH_anon_WITH_DES_CBC_SHA",
-      "SSL_RSA_EXPORT_WITH_RC4_40_MD5",
-      "SSL_DH_anon_EXPORT_WITH_RC4_40_MD5",
-      "SSL_RSA_EXPORT_WITH_DES40_CBC_SHA",
-      "SSL_DHE_RSA_EXPORT_WITH_DES40_CBC_SHA",
-      "SSL_DHE_DSS_EXPORT_WITH_DES40_CBC_SHA",
-      "SSL_DH_anon_EXPORT_WITH_DES40_CBC_SHA",
-      "TLS_KRB5_WITH_RC4_128_SHA",
-      "TLS_KRB5_WITH_RC4_128_MD5",
-      "TLS_KRB5_WITH_3DES_EDE_CBC_SHA",
-      "TLS_KRB5_WITH_3DES_EDE_CBC_MD5",
-      "TLS_KRB5_WITH_DES_CBC_SHA",
-      "TLS_KRB5_WITH_DES_CBC_MD5",
-      "TLS_KRB5_EXPORT_WITH_RC4_40_SHA",
-      "TLS_KRB5_EXPORT_WITH_RC4_40_MD5",
-      "TLS_KRB5_EXPORT_WITH_DES_CBC_40_SHA",
-      "TLS_KRB5_EXPORT_WITH_DES_CBC_40_MD5"
-    };
 
   /**
    * Create a worker verticle for the current Vert.x and return its context.

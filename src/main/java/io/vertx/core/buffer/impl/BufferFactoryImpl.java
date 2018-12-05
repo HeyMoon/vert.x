@@ -1,24 +1,23 @@
 /*
- * Copyright 2014 Red Hat, Inc.
+ * Copyright (c) 2014 Red Hat, Inc. and others
  *
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- * The Eclipse Public License is available at
- * http://www.eclipse.org/legal/epl-v10.html
- *
- * The Apache License v2.0 is available at
- * http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core.buffer.impl;
 
 import io.netty.buffer.ByteBuf;
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.net.impl.PartialPooledByteBufAllocator;
 import io.vertx.core.spi.BufferFactory;
+
+import java.nio.charset.Charset;
+import java.util.Objects;
 
 /**
  * @author <a href="http://tfox.org">Tim Fox</a>
@@ -53,5 +52,17 @@ public class BufferFactoryImpl implements BufferFactory {
   @Override
   public Buffer buffer(ByteBuf byteBuffer) {
     return new BufferImpl(byteBuffer);
+  }
+
+  @Override
+  public Buffer directBuffer(String str, String enc) {
+    return directBuffer(str.getBytes(Charset.forName(Objects.requireNonNull(enc))));
+  }
+
+  @Override
+  public Buffer directBuffer(byte[] bytes) {
+    ByteBuf buff = PartialPooledByteBufAllocator.UNPOOLED.directBuffer(bytes.length);
+    buff.writeBytes(bytes);
+    return new BufferImpl(buff);
   }
 }

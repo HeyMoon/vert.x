@@ -1,40 +1,42 @@
 /*
- * Copyright (c) 2011-2014 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2018 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core;
 
 import io.vertx.codegen.annotations.DataObject;
+import io.vertx.core.dns.AddressResolverOptions;
+import io.vertx.core.eventbus.EventBusOptions;
+import io.vertx.core.file.FileSystemOptions;
+import io.vertx.core.impl.cpu.CpuCoreSensor;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.metrics.MetricsOptions;
 import io.vertx.core.spi.cluster.ClusterManager;
 
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
+
+import static io.vertx.core.file.FileSystemOptions.DEFAULT_FILE_CACHING_ENABLED;
 
 /**
  * Instances of this class are used to configure {@link io.vertx.core.Vertx} instances.
- * 
+ *
  * @author <a href="http://tfox.org">Tim Fox</a>
  */
-@DataObject(generateConverter = true)
+@DataObject(generateConverter = true, publicConverter = false)
 public class VertxOptions {
 
   /**
    * The default number of event loop threads to be used  = 2 * number of cores on the machine
    */
-  public static final int DEFAULT_EVENT_LOOP_POOL_SIZE = 2 * Runtime.getRuntime().availableProcessors();
+  public static final int DEFAULT_EVENT_LOOP_POOL_SIZE = 2 * CpuCoreSensor.availableProcessors();
 
   /**
    * The default number of threads in the worker pool = 20
@@ -87,14 +89,29 @@ public class VertxOptions {
   public static final long DEFAULT_BLOCKED_THREAD_CHECK_INTERVAL = 1000;
 
   /**
+   * The default value of blocked thread check interval unit = TimeUnit.NANOSECONDS
+   */
+  public static final TimeUnit DEFAULT_BLOCKED_THREAD_CHECK_INTERVAL_UNIT = TimeUnit.MILLISECONDS;
+
+  /**
    * The default value of max event loop execute time = 2000000000 ns (2 seconds)
    */
-  public static final long DEFAULT_MAX_EVENT_LOOP_EXECUTE_TIME = 2l * 1000 * 1000000;
+  public static final long DEFAULT_MAX_EVENT_LOOP_EXECUTE_TIME = 2L * 1000 * 1000000;
+
+  /**
+   * The default value of max event loop execute time unit = TimeUnit.NANOSECONDS
+   */
+  public static final TimeUnit DEFAULT_MAX_EVENT_LOOP_EXECUTE_TIME_UNIT = TimeUnit.NANOSECONDS;
 
   /**
    * The default value of max worker execute time = 60000000000 ns (60 seconds)
    */
-  public static final long DEFAULT_MAX_WORKER_EXECUTE_TIME = 60l * 1000 * 1000000;
+  public static final long DEFAULT_MAX_WORKER_EXECUTE_TIME = 60L * 1000 * 1000000;
+
+  /**
+   * The default value of max worker execute time unit = TimeUnit.NANOSECONDS
+   */
+  public static final TimeUnit DEFAULT_MAX_WORKER_EXECUTE_TIME_UNIT = TimeUnit.NANOSECONDS;
 
   /**
    * The default value of quorum size = 1
@@ -112,22 +129,25 @@ public class VertxOptions {
   public static final boolean DEFAULT_HA_ENABLED = false;
 
   /**
+   * The default value for preferring native transport = false
+   */
+  public static final boolean DEFAULT_PREFER_NATIVE_TRANSPORT = false;
+
+  /**
    * The default value of warning exception time 5000000000 ns (5 seconds)
    * If a thread is blocked longer than this threshold, the warning log
    * contains a stack trace
    */
-  private static final long DEFAULT_WARNING_EXECPTION_TIME = 5l * 1000 * 1000000;
+  private static final long DEFAULT_WARNING_EXCEPTION_TIME = TimeUnit.SECONDS.toNanos(5);
+
+  /**
+   * The default value of warning exception time unit = TimeUnit.NANOSECONDS
+   */
+  public static final TimeUnit DEFAULT_WARNING_EXCEPTION_TIME_UNIT = TimeUnit.NANOSECONDS;
 
   private int eventLoopPoolSize = DEFAULT_EVENT_LOOP_POOL_SIZE;
   private int workerPoolSize = DEFAULT_WORKER_POOL_SIZE;
   private int internalBlockingPoolSize = DEFAULT_INTERNAL_BLOCKING_POOL_SIZE;
-  private boolean clustered = DEFAULT_CLUSTERED;
-  private String clusterHost = DEFAULT_CLUSTER_HOST;
-  private int clusterPort = DEFAULT_CLUSTER_PORT;
-  private String clusterPublicHost = DEFAULT_CLUSTER_PUBLIC_HOST;
-  private int clusterPublicPort = DEFAULT_CLUSTER_PUBLIC_PORT;
-  private long clusterPingInterval = DEFAULT_CLUSTER_PING_INTERVAL;
-  private long clusterPingReplyInterval = DEFAULT_CLUSTER_PING_REPLY_INTERVAL;
   private long blockedThreadCheckInterval = DEFAULT_BLOCKED_THREAD_CHECK_INTERVAL;
   private long maxEventLoopExecuteTime = DEFAULT_MAX_EVENT_LOOP_EXECUTE_TIME;
   private long maxWorkerExecuteTime = DEFAULT_MAX_WORKER_EXECUTE_TIME;
@@ -135,8 +155,16 @@ public class VertxOptions {
   private boolean haEnabled = DEFAULT_HA_ENABLED;
   private int quorumSize = DEFAULT_QUORUM_SIZE;
   private String haGroup = DEFAULT_HA_GROUP;
-  private MetricsOptions metrics = new MetricsOptions();
-  private long warningExceptionTime = DEFAULT_WARNING_EXECPTION_TIME;
+  private MetricsOptions metricsOptions = new MetricsOptions();
+  private FileSystemOptions fileSystemOptions = new FileSystemOptions();
+  private long warningExceptionTime = DEFAULT_WARNING_EXCEPTION_TIME;
+  private EventBusOptions eventBusOptions = new EventBusOptions();
+  private AddressResolverOptions addressResolverOptions = new AddressResolverOptions();
+  private boolean preferNativeTransport = DEFAULT_PREFER_NATIVE_TRANSPORT;
+  private TimeUnit maxEventLoopExecuteTimeUnit = DEFAULT_MAX_EVENT_LOOP_EXECUTE_TIME_UNIT;
+  private TimeUnit maxWorkerExecuteTimeUnit = DEFAULT_MAX_WORKER_EXECUTE_TIME_UNIT;
+  private TimeUnit warningExceptionTimeUnit = DEFAULT_WARNING_EXCEPTION_TIME_UNIT;
+  private TimeUnit blockedThreadCheckIntervalUnit = DEFAULT_BLOCKED_THREAD_CHECK_INTERVAL_UNIT;
 
   /**
    * Default constructor
@@ -146,19 +174,12 @@ public class VertxOptions {
 
   /**
    * Copy constructor
-   * 
+   *
    * @param other The other {@code VertxOptions} to copy when creating this
    */
   public VertxOptions(VertxOptions other) {
     this.eventLoopPoolSize = other.getEventLoopPoolSize();
     this.workerPoolSize = other.getWorkerPoolSize();
-    this.clustered = other.isClustered();
-    this.clusterHost = other.getClusterHost();
-    this.clusterPort = other.getClusterPort();
-    this.clusterPublicHost = other.getClusterPublicHost();
-    this.clusterPublicPort = other.getClusterPublicPort();
-    this.clusterPingInterval = other.getClusterPingInterval();
-    this.clusterPingReplyInterval = other.getClusterPingReplyInterval();
     this.blockedThreadCheckInterval = other.getBlockedThreadCheckInterval();
     this.maxEventLoopExecuteTime = other.getMaxEventLoopExecuteTime();
     this.maxWorkerExecuteTime = other.getMaxWorkerExecuteTime();
@@ -167,13 +188,20 @@ public class VertxOptions {
     this.haEnabled = other.isHAEnabled();
     this.quorumSize = other.getQuorumSize();
     this.haGroup = other.getHAGroup();
-    this.metrics = other.getMetricsOptions() != null ? new MetricsOptions(other.getMetricsOptions()) : null;
+    this.metricsOptions = other.getMetricsOptions() != null ? new MetricsOptions(other.getMetricsOptions()) : null;
+    this.fileSystemOptions = other.getFileSystemOptions() != null ? new FileSystemOptions(other.getFileSystemOptions()) : null;
     this.warningExceptionTime = other.warningExceptionTime;
+    this.eventBusOptions = new EventBusOptions(other.eventBusOptions);
+    this.addressResolverOptions = other.addressResolverOptions != null ? new AddressResolverOptions() : null;
+    this.maxEventLoopExecuteTimeUnit = other.maxEventLoopExecuteTimeUnit;
+    this.maxWorkerExecuteTimeUnit = other.maxWorkerExecuteTimeUnit;
+    this.warningExceptionTimeUnit = other.warningExceptionTimeUnit;
+    this.blockedThreadCheckIntervalUnit = other.blockedThreadCheckIntervalUnit;
   }
 
   /**
    * Create an instance from a {@link io.vertx.core.json.JsonObject}
-   * 
+   *
    * @param json the JsonObject to create it from
    */
   public VertxOptions(JsonObject json) {
@@ -183,7 +211,7 @@ public class VertxOptions {
 
   /**
    * Get the number of event loop threads to be used by the Vert.x instance.
-   * 
+   *
    * @return the number of threads
    */
   public int getEventLoopPoolSize() {
@@ -192,8 +220,8 @@ public class VertxOptions {
 
   /**
    * Set the number of event loop threads to be used by the Vert.x instance.
-   * 
-   * @param eventLoopPoolSize  the number of threads
+   *
+   * @param eventLoopPoolSize the number of threads
    * @return a reference to this, so the API can be used fluently
    */
   public VertxOptions setEventLoopPoolSize(int eventLoopPoolSize) {
@@ -218,7 +246,7 @@ public class VertxOptions {
   /**
    * Set the maximum number of worker threads to be used by the Vert.x instance.
    *
-   * @param workerPoolSize  the number of threads
+   * @param workerPoolSize the number of threads
    * @return a reference to this, so the API can be used fluently
    */
   public VertxOptions setWorkerPoolSize(int workerPoolSize) {
@@ -231,19 +259,21 @@ public class VertxOptions {
 
   /**
    * Is the Vert.x instance clustered?
+   *
    * @return true if clustered, false if not
    */
   public boolean isClustered() {
-    return clustered;
+    return eventBusOptions.isClustered();
   }
 
   /**
    * Set whether or not the Vert.x instance will be clustered.
-   * @param clustered  if true, the Vert.x instance will be clustered, otherwise not
+   *
+   * @param clustered if true, the Vert.x instance will be clustered, otherwise not
    * @return a reference to this, so the API can be used fluently
    */
   public VertxOptions setClustered(boolean clustered) {
-    this.clustered = clustered;
+    eventBusOptions.setClustered(clustered);
     return this;
   }
 
@@ -253,26 +283,27 @@ public class VertxOptions {
    * @return The host name
    */
   public String getClusterHost() {
-    return clusterHost;
+    return eventBusOptions.getHost();
   }
 
   /**
    * Set the hostname to be used for clustering.
    *
-   * @param clusterHost  the host name to use
+   * @param clusterHost the host name to use
    * @return a reference to this, so the API can be used fluently
    */
   public VertxOptions setClusterHost(String clusterHost) {
-    this.clusterHost = clusterHost;
+    this.eventBusOptions.setHost(clusterHost);
     return this;
   }
 
   /**
    * Get the public facing hostname to be used when clustering.
-   * @return  the public facing hostname
+   *
+   * @return the public facing hostname
    */
   public String getClusterPublicHost() {
-    return clusterPublicHost;
+    return getEventBusOptions().getClusterPublicHost();
   }
 
   /**
@@ -282,11 +313,11 @@ public class VertxOptions {
    * If this is the case you can specify a public hostname which is different from the hostname the server listens at.
    * The default value is null which means use the same as the cluster hostname.
    *
-   * @param clusterPublicHost  the public host name to use
+   * @param clusterPublicHost the public host name to use
    * @return a reference to this, so the API can be used fluently
    */
   public VertxOptions setClusterPublicHost(String clusterPublicHost) {
-    this.clusterPublicHost = clusterPublicHost;
+    getEventBusOptions().setClusterPublicHost(clusterPublicHost);
     return this;
   }
 
@@ -296,42 +327,37 @@ public class VertxOptions {
    * @return the port
    */
   public int getClusterPort() {
-    return clusterPort;
+    return eventBusOptions.getPort();
   }
 
   /**
    * Set the port to be used for clustering.
    *
-   * @param clusterPort  the port
+   * @param clusterPort the port
    * @return a reference to this, so the API can be used fluently
    */
   public VertxOptions setClusterPort(int clusterPort) {
-    if (clusterPort < 0 || clusterPort > 65535) {
-      throw new IllegalArgumentException("clusterPort p must be in range 0 <= p <= 65535");
-    }
-    this.clusterPort = clusterPort;
+    eventBusOptions.setPort(clusterPort);
     return this;
   }
 
   /**
    * Get the public facing port to be used when clustering.
-   * @return  the public facing port
+   *
+   * @return the public facing port
    */
   public int getClusterPublicPort() {
-    return clusterPublicPort;
+    return eventBusOptions.getClusterPublicPort();
   }
 
   /**
    * See {@link #setClusterPublicHost(String)} for an explanation.
    *
-   * @param clusterPublicPort  the public port to use
+   * @param clusterPublicPort the public port to use
    * @return a reference to this, so the API can be used fluently
    */
   public VertxOptions setClusterPublicPort(int clusterPublicPort) {
-    if (clusterPublicPort < 0 || clusterPublicPort > 65535) {
-      throw new IllegalArgumentException("clusterPublicPort p must be in range 0 <= p <= 65535");
-    }
-    this.clusterPublicPort = clusterPublicPort;
+    getEventBusOptions().setClusterPublicPort(clusterPublicPort);
     return this;
   }
 
@@ -343,7 +369,7 @@ public class VertxOptions {
    * @return The value of cluster ping interval
    */
   public long getClusterPingInterval() {
-    return clusterPingInterval;
+    return getEventBusOptions().getClusterPingInterval();
   }
 
   /**
@@ -353,10 +379,7 @@ public class VertxOptions {
    * @return a reference to this, so the API can be used fluently
    */
   public VertxOptions setClusterPingInterval(long clusterPingInterval) {
-    if (clusterPingInterval < 1) {
-      throw new IllegalArgumentException("clusterPingInterval must be greater than 0");
-    }
-    this.clusterPingInterval = clusterPingInterval;
+    eventBusOptions.setClusterPingInterval(clusterPingInterval);
     return this;
   }
 
@@ -368,7 +391,7 @@ public class VertxOptions {
    * @return the value of cluster ping reply interval
    */
   public long getClusterPingReplyInterval() {
-    return clusterPingReplyInterval;
+    return eventBusOptions.getClusterPingReplyInterval();
   }
 
   /**
@@ -378,28 +401,29 @@ public class VertxOptions {
    * @return a reference to this, so the API can be used fluently
    */
   public VertxOptions setClusterPingReplyInterval(long clusterPingReplyInterval) {
-    if (clusterPingReplyInterval < 1) {
-      throw new IllegalArgumentException("clusterPingReplyInterval must be greater than 0");
-    }
-    this.clusterPingReplyInterval = clusterPingReplyInterval;
+    eventBusOptions.setClusterPingReplyInterval(clusterPingReplyInterval);
     return this;
   }
 
   /**
-   * Get the value of blocked thread check period, in ms.
+   * Get the value of blocked thread check period, in {@link VertxOptions#setBlockedThreadCheckIntervalUnit blockedThreadCheckIntervalUnit}.
    * <p>
    * This setting determines how often Vert.x will check whether event loop threads are executing for too long.
+   * <p>
+   * The default value of {@link VertxOptions#setBlockedThreadCheckIntervalUnit blockedThreadCheckIntervalUnit} is {@link TimeUnit#MILLISECONDS}.
    *
-   * @return the value of blocked thread check period, in ms.
+   * @return the value of blocked thread check period, in {@link VertxOptions#setBlockedThreadCheckIntervalUnit blockedThreadCheckIntervalUnit}.
    */
   public long getBlockedThreadCheckInterval() {
     return blockedThreadCheckInterval;
   }
 
   /**
-   * Sets the value of blocked thread check period, in ms.
+   * Sets the value of blocked thread check period, in {@link VertxOptions#setBlockedThreadCheckIntervalUnit blockedThreadCheckIntervalUnit}.
+   * <p>
+   * The default value of {@link VertxOptions#setBlockedThreadCheckIntervalUnit blockedThreadCheckIntervalUnit} is {@link TimeUnit#MILLISECONDS}
    *
-   * @param blockedThreadCheckInterval  the value of blocked thread check period, in ms.
+   * @param blockedThreadCheckInterval the value of blocked thread check period, in {@link VertxOptions#setBlockedThreadCheckIntervalUnit blockedThreadCheckIntervalUnit}.
    * @return a reference to this, so the API can be used fluently
    */
   public VertxOptions setBlockedThreadCheckInterval(long blockedThreadCheckInterval) {
@@ -411,23 +435,27 @@ public class VertxOptions {
   }
 
   /**
-   * Get the value of max event loop execute time, in ns.
+   * Get the value of max event loop execute time, in {@link VertxOptions#setMaxEventLoopExecuteTimeUnit maxEventLoopExecuteTimeUnit}.
    * <p>
    * Vert.x will automatically log a warning if it detects that event loop threads haven't returned within this time.
    * <p>
    * This can be used to detect where the user is blocking an event loop thread, contrary to the Golden Rule of the
    * holy Event Loop.
+   * <p>
+   * The default value of {@link VertxOptions#setMaxEventLoopExecuteTimeUnit maxEventLoopExecuteTimeUnit} is {@link TimeUnit#NANOSECONDS}
    *
-   * @return the value of max event loop execute time, in ms.
+   * @return the value of max event loop execute time, in {@link VertxOptions#setMaxEventLoopExecuteTimeUnit maxEventLoopExecuteTimeUnit}.
    */
   public long getMaxEventLoopExecuteTime() {
     return maxEventLoopExecuteTime;
   }
 
   /**
-   * Sets the value of max event loop execute time, in ns.
+   * Sets the value of max event loop execute time, in {@link VertxOptions#setMaxEventLoopExecuteTimeUnit maxEventLoopExecuteTimeUnit}.
+   * <p>
+   * The default value of {@link VertxOptions#setMaxEventLoopExecuteTimeUnit maxEventLoopExecuteTimeUnit}is {@link TimeUnit#NANOSECONDS}
    *
-   * @param maxEventLoopExecuteTime  the value of max event loop execute time, in ms.
+   * @param maxEventLoopExecuteTime the value of max event loop execute time, in {@link VertxOptions#setMaxEventLoopExecuteTimeUnit maxEventLoopExecuteTimeUnit}.
    * @return a reference to this, so the API can be used fluently
    */
   public VertxOptions setMaxEventLoopExecuteTime(long maxEventLoopExecuteTime) {
@@ -439,23 +467,27 @@ public class VertxOptions {
   }
 
   /**
-   * Get the value of max worker execute time, in ns.
+   * Get the value of max worker execute time, in {@link VertxOptions#setMaxWorkerExecuteTimeUnit maxWorkerExecuteTimeUnit}.
    * <p>
    * Vert.x will automatically log a warning if it detects that worker threads haven't returned within this time.
    * <p>
    * This can be used to detect where the user is blocking a worker thread for too long. Although worker threads
    * can be blocked longer than event loop threads, they shouldn't be blocked for long periods of time.
+   * <p>
+   * The default value of {@link VertxOptions#setMaxWorkerExecuteTimeUnit maxWorkerExecuteTimeUnit} is {@link TimeUnit#NANOSECONDS}
    *
-   * @return The value of max worker execute time, in ms.
+   * @return The value of max worker execute time, in {@link VertxOptions#setMaxWorkerExecuteTimeUnit maxWorkerExecuteTimeUnit}.
    */
   public long getMaxWorkerExecuteTime() {
     return maxWorkerExecuteTime;
   }
 
   /**
-   * Sets the value of max worker execute time, in ns.
+   * Sets the value of max worker execute time, in {@link VertxOptions#setMaxWorkerExecuteTimeUnit maxWorkerExecuteTimeUnit}.
+   * <p>
+   * The default value of {@link VertxOptions#setMaxWorkerExecuteTimeUnit maxWorkerExecuteTimeUnit} is {@link TimeUnit#NANOSECONDS}
    *
-   * @param maxWorkerExecuteTime  the value of max worker execute time, in ms.
+   * @param maxWorkerExecuteTime the value of max worker execute time, in {@link VertxOptions#setMaxWorkerExecuteTimeUnit maxWorkerExecuteTimeUnit}.
    * @return a reference to this, so the API can be used fluently
    */
   public VertxOptions setMaxWorkerExecuteTime(long maxWorkerExecuteTime) {
@@ -473,7 +505,7 @@ public class VertxOptions {
    * <p>
    * Otherwise Vert.x attempts to locate a cluster manager on the classpath.
    *
-   * @return  the cluster manager.
+   * @return the cluster manager.
    */
   public ClusterManager getClusterManager() {
     return clusterManager;
@@ -487,7 +519,7 @@ public class VertxOptions {
    * Normally Vert.x will look on the classpath for a cluster manager, but if you want to set one
    * programmatically you can use this method.
    *
-   * @param clusterManager  the cluster manager
+   * @param clusterManager the cluster manager
    * @return a reference to this, so the API can be used fluently
    */
   public VertxOptions setClusterManager(ClusterManager clusterManager) {
@@ -532,7 +564,7 @@ public class VertxOptions {
   /**
    * Set whether HA will be enabled on the Vert.x instance.
    *
-   * @param haEnabled  true if enabled, false if not.
+   * @param haEnabled true if enabled, false if not.
    * @return a reference to this, so the API can be used fluently
    */
   public VertxOptions setHAEnabled(boolean haEnabled) {
@@ -543,7 +575,7 @@ public class VertxOptions {
   /**
    * Get the quorum size to be used when HA is enabled.
    *
-   * @return  the quorum size
+   * @return the quorum size
    */
   public int getQuorumSize() {
     return quorumSize;
@@ -552,7 +584,7 @@ public class VertxOptions {
   /**
    * Set the quorum size to be used when HA is enabled.
    *
-   * @param quorumSize  the quorum size
+   * @param quorumSize the quorum size
    * @return a reference to this, so the API can be used fluently
    */
   public VertxOptions setQuorumSize(int quorumSize) {
@@ -588,7 +620,14 @@ public class VertxOptions {
    * @return the metrics options
    */
   public MetricsOptions getMetricsOptions() {
-    return metrics;
+    return metricsOptions;
+  }
+
+  /**
+   * @return the file system options
+   */
+  public FileSystemOptions getFileSystemOptions() {
+    return fileSystemOptions;
   }
 
   /**
@@ -598,12 +637,25 @@ public class VertxOptions {
    * @return a reference to this, so the API can be used fluently
    */
   public VertxOptions setMetricsOptions(MetricsOptions metrics) {
-    this.metrics = metrics;
+    this.metricsOptions = metrics;
     return this;
   }
 
   /**
-   * Get the threshold value above this, the blocked warning contains a stack trace.
+   * Set the file system options
+   *
+   * @param fileSystemOptions the options
+   * @return a reference to this, so the API can be used fluently
+   */
+  public VertxOptions setFileSystemOptions(FileSystemOptions fileSystemOptions) {
+    this.fileSystemOptions = fileSystemOptions;
+    return this;
+  }
+
+  /**
+   * Get the threshold value above this, the blocked warning contains a stack trace. in {@link VertxOptions#setWarningExceptionTimeUnit warningExceptionTimeUnit}.
+   * <p>
+   * The default value of {@link VertxOptions#setWarningExceptionTimeUnit warningExceptionTimeUnit} is {@link TimeUnit#NANOSECONDS}
    *
    * @return the warning exception time threshold
    */
@@ -612,7 +664,8 @@ public class VertxOptions {
   }
 
   /**
-   * Set the threshold value above this, the blocked warning contains a stack trace.
+   * Set the threshold value above this, the blocked warning contains a stack trace. in {@link VertxOptions#setWarningExceptionTimeUnit warningExceptionTimeUnit}.
+   * The default value of {@link VertxOptions#setWarningExceptionTimeUnit warningExceptionTimeUnit} is {@link TimeUnit#NANOSECONDS}
    *
    * @param warningExceptionTime
    * @return a reference to this, so the API can be used fluently
@@ -622,6 +675,164 @@ public class VertxOptions {
       throw new IllegalArgumentException("warningExceptionTime must be > 0");
     }
     this.warningExceptionTime = warningExceptionTime;
+    return this;
+  }
+
+  /**
+   * @return the event bus option to configure the event bus communication (host, port, ssl...)
+   */
+  public EventBusOptions getEventBusOptions() {
+    return eventBusOptions;
+  }
+
+  /**
+   * Sets the event bus configuration to configure the host, port, ssl...
+   *
+   * @param options the event bus options
+   * @return a reference to this, so the API can be used fluently
+   */
+  public VertxOptions setEventBusOptions(EventBusOptions options) {
+    Objects.requireNonNull(options);
+    this.eventBusOptions = options;
+    return this;
+  }
+
+  /**
+   * @return the address resolver options to configure resolving DNS servers, cache TTL, etc...
+   */
+  public AddressResolverOptions getAddressResolverOptions() {
+    return addressResolverOptions;
+  }
+
+  /**
+   * Sets the address resolver configuration to configure resolving DNS servers, cache TTL, etc...
+   *
+   * @param addressResolverOptions the address resolver options
+   * @return a reference to this, so the API can be used fluently
+   */
+  public VertxOptions setAddressResolverOptions(AddressResolverOptions addressResolverOptions) {
+    this.addressResolverOptions = addressResolverOptions;
+    return this;
+  }
+
+  /**
+   *
+   * Deprecated. Use FileSystemOptions instead.
+   *
+   * @return whether the file resolver uses caching
+   */
+  @Deprecated
+  public boolean isFileResolverCachingEnabled() {
+    if (fileSystemOptions == null) {
+      return DEFAULT_FILE_CACHING_ENABLED;
+    }
+    return fileSystemOptions.isFileCachingEnabled();
+  }
+
+  /**
+   * Set whether the Vert.x file resolver uses caching for classpath resources.
+   *
+   * Deprecated. Use FileSystemOptions instead.
+   *
+   * @param fileResolverCachingEnabled true when the file resolver caches resources
+   * @return a reference to this, so the API can be used fluently
+   */
+  @Deprecated
+  public VertxOptions setFileResolverCachingEnabled(boolean fileResolverCachingEnabled) {
+    if (fileSystemOptions == null) {
+      fileSystemOptions = new FileSystemOptions();
+    }
+    this.fileSystemOptions.setFileCachingEnabled(fileResolverCachingEnabled);
+    return this;
+  }
+
+  /**
+   * @return wether to prefer the native transport to the JDK transport
+   */
+  public boolean getPreferNativeTransport() {
+    return preferNativeTransport;
+  }
+
+  /**
+   * Set wether to prefer the native transport to the JDK transport.
+   *
+   * @param preferNativeTransport {@code true} to prefer the native transport
+   * @return a reference to this, so the API can be used fluently
+   */
+  public VertxOptions setPreferNativeTransport(boolean preferNativeTransport) {
+    this.preferNativeTransport = preferNativeTransport;
+    return this;
+  }
+
+  /**
+   * @return the time unit of {@code maxEventLoopExecuteTime}
+   */
+  public TimeUnit getMaxEventLoopExecuteTimeUnit() {
+    return maxEventLoopExecuteTimeUnit;
+  }
+
+  /**
+   * Set the time unit of {@code maxEventLoopExecuteTime}.
+   *
+   * @param maxEventLoopExecuteTimeUnit the time unit of {@code maxEventLoopExecuteTime}
+   * @return a reference to this, so the API can be used fluently
+   */
+  public VertxOptions setMaxEventLoopExecuteTimeUnit(TimeUnit maxEventLoopExecuteTimeUnit) {
+    this.maxEventLoopExecuteTimeUnit = maxEventLoopExecuteTimeUnit;
+    return this;
+  }
+
+  /**
+   * @return the time unit of {@code maxWorkerExecuteTime}
+   */
+  public TimeUnit getMaxWorkerExecuteTimeUnit() {
+    return maxWorkerExecuteTimeUnit;
+  }
+
+  /**
+   * Set the time unit of {@code maxWorkerExecuteTime}.
+   *
+   * @param maxWorkerExecuteTimeUnit the time unit of {@code maxWorkerExecuteTime}
+   * @return a reference to this, so the API can be used fluently
+   */
+  public VertxOptions setMaxWorkerExecuteTimeUnit(TimeUnit maxWorkerExecuteTimeUnit) {
+    this.maxWorkerExecuteTimeUnit = maxWorkerExecuteTimeUnit;
+    return this;
+  }
+
+  /**
+   * @return the time unit of {@code warningExceptionTime}
+   */
+  public TimeUnit getWarningExceptionTimeUnit() {
+    return warningExceptionTimeUnit;
+  }
+
+  /**
+   * Set the time unit of {@code warningExceptionTime}.
+   *
+   * @param warningExceptionTimeUnit the time unit of {@code warningExceptionTime}
+   * @return a reference to this, so the API can be used fluently
+   */
+  public VertxOptions setWarningExceptionTimeUnit(TimeUnit warningExceptionTimeUnit) {
+    this.warningExceptionTimeUnit = warningExceptionTimeUnit;
+    return this;
+  }
+
+  /**
+   * @return the time unit of {@code blockedThreadCheckInterval}
+   */
+  public TimeUnit getBlockedThreadCheckIntervalUnit() {
+    return blockedThreadCheckIntervalUnit;
+  }
+
+  /**
+   * Set the time unit of {@code blockedThreadCheckInterval}.
+   *
+   * @param blockedThreadCheckIntervalUnit the time unit of {@code warningExceptionTime}
+   * @return a reference to this, so the API can be used fluently
+   */
+  public VertxOptions setBlockedThreadCheckIntervalUnit(TimeUnit blockedThreadCheckIntervalUnit) {
+    this.blockedThreadCheckIntervalUnit = blockedThreadCheckIntervalUnit;
     return this;
   }
 
@@ -635,25 +846,28 @@ public class VertxOptions {
     if (eventLoopPoolSize != that.eventLoopPoolSize) return false;
     if (workerPoolSize != that.workerPoolSize) return false;
     if (internalBlockingPoolSize != that.internalBlockingPoolSize) return false;
-    if (clustered != that.clustered) return false;
-    if (clusterPort != that.clusterPort) return false;
-    if (clusterPublicPort != that.clusterPublicPort) return false;
-    if (clusterPingInterval != that.clusterPingInterval) return false;
-    if (clusterPingReplyInterval != that.clusterPingReplyInterval) return false;
     if (blockedThreadCheckInterval != that.blockedThreadCheckInterval) return false;
+    if (blockedThreadCheckIntervalUnit != that.blockedThreadCheckIntervalUnit) return false;
     if (maxEventLoopExecuteTime != that.maxEventLoopExecuteTime) return false;
+    if (maxEventLoopExecuteTimeUnit != that.maxEventLoopExecuteTimeUnit) return false;
     if (maxWorkerExecuteTime != that.maxWorkerExecuteTime) return false;
+    if (maxWorkerExecuteTimeUnit != that.maxWorkerExecuteTimeUnit) return false;
     if (haEnabled != that.haEnabled) return false;
     if (quorumSize != that.quorumSize) return false;
     if (warningExceptionTime != that.warningExceptionTime) return false;
-    if (clusterHost != null ? !clusterHost.equals(that.clusterHost) : that.clusterHost != null) return false;
-    if (clusterPublicHost != null ? !clusterPublicHost.equals(that.clusterPublicHost) : that.clusterPublicHost != null)
-      return false;
+    if (warningExceptionTimeUnit != that.warningExceptionTimeUnit) return false;
     if (clusterManager != null ? !clusterManager.equals(that.clusterManager) : that.clusterManager != null)
       return false;
     if (haGroup != null ? !haGroup.equals(that.haGroup) : that.haGroup != null) return false;
-    return !(metrics != null ? !metrics.equals(that.metrics) : that.metrics != null);
-
+    if (eventBusOptions != null ? !eventBusOptions.equals(that.eventBusOptions) : that.eventBusOptions != null)
+      return false;
+    if (addressResolverOptions != null ? !addressResolverOptions.equals(that.addressResolverOptions) : that.addressResolverOptions != null)
+      return false;
+    if (preferNativeTransport != that.preferNativeTransport) return false;
+    if (fileSystemOptions != null ? !fileSystemOptions.equals(that.fileSystemOptions) : that.fileSystemOptions != null) {
+      return false;
+    }
+    return !(metricsOptions != null ? !metricsOptions.equals(that.metricsOptions) : that.metricsOptions != null);
   }
 
   @Override
@@ -661,47 +875,50 @@ public class VertxOptions {
     int result = eventLoopPoolSize;
     result = 31 * result + workerPoolSize;
     result = 31 * result + internalBlockingPoolSize;
-    result = 31 * result + (clustered ? 1 : 0);
-    result = 31 * result + (clusterHost != null ? clusterHost.hashCode() : 0);
-    result = 31 * result + clusterPort;
-    result = 31 * result + (clusterPublicHost != null ? clusterPublicHost.hashCode() : 0);
-    result = 31 * result + clusterPublicPort;
-    result = 31 * result + (int) (clusterPingInterval ^ (clusterPingInterval >>> 32));
-    result = 31 * result + (int) (clusterPingReplyInterval ^ (clusterPingReplyInterval >>> 32));
     result = 31 * result + (int) (blockedThreadCheckInterval ^ (blockedThreadCheckInterval >>> 32));
     result = 31 * result + (int) (maxEventLoopExecuteTime ^ (maxEventLoopExecuteTime >>> 32));
     result = 31 * result + (int) (maxWorkerExecuteTime ^ (maxWorkerExecuteTime >>> 32));
     result = 31 * result + (clusterManager != null ? clusterManager.hashCode() : 0);
     result = 31 * result + (haEnabled ? 1 : 0);
+    result = 31 * result + (preferNativeTransport ? 1 : 0);
     result = 31 * result + quorumSize;
     result = 31 * result + (haGroup != null ? haGroup.hashCode() : 0);
-    result = 31 * result + (metrics != null ? metrics.hashCode() : 0);
+    result = 31 * result + (metricsOptions != null ? metricsOptions.hashCode() : 0);
+    result = 31 * result + (fileSystemOptions != null ? fileSystemOptions.hashCode() : 0);
+    result = 31 * result + (eventBusOptions != null ? eventBusOptions.hashCode() : 0);
+    result = 31 * result + (addressResolverOptions != null ? addressResolverOptions.hashCode() : 0);
     result = 31 * result + (int) (warningExceptionTime ^ (warningExceptionTime >>> 32));
+    result = 31 * result + (maxEventLoopExecuteTimeUnit != null ? maxEventLoopExecuteTimeUnit.hashCode() : 0);
+    result = 31 * result + (maxWorkerExecuteTimeUnit != null ? maxWorkerExecuteTimeUnit.hashCode() : 0);
+    result = 31 * result + (warningExceptionTimeUnit != null ? warningExceptionTimeUnit.hashCode() : 0);
+    result = 31 * result + (blockedThreadCheckIntervalUnit != null ? blockedThreadCheckIntervalUnit.hashCode() : 0);
     return result;
   }
 
   @Override
   public String toString() {
     return "VertxOptions{" +
-      "eventLoopPoolSize=" + eventLoopPoolSize +
-      ", workerPoolSize=" + workerPoolSize +
-      ", internalBlockingPoolSize=" + internalBlockingPoolSize +
-      ", clustered=" + clustered +
-      ", clusterHost='" + clusterHost + '\'' +
-      ", clusterPort=" + clusterPort +
-      ", clusterPublicHost='" + clusterPublicHost + '\'' +
-      ", clusterPublicPort=" + clusterPublicPort +
-      ", clusterPingInterval=" + clusterPingInterval +
-      ", clusterPingReplyInterval=" + clusterPingReplyInterval +
-      ", blockedThreadCheckInterval=" + blockedThreadCheckInterval +
-      ", maxEventLoopExecuteTime=" + maxEventLoopExecuteTime +
-      ", maxWorkerExecuteTime=" + maxWorkerExecuteTime +
-      ", clusterManager=" + clusterManager +
-      ", haEnabled=" + haEnabled +
-      ", quorumSize=" + quorumSize +
-      ", haGroup='" + haGroup + '\'' +
-      ", metrics=" + metrics +
-      ", warningExceptionTime=" + warningExceptionTime +
-      '}';
+        "eventLoopPoolSize=" + eventLoopPoolSize +
+        ", workerPoolSize=" + workerPoolSize +
+        ", internalBlockingPoolSize=" + internalBlockingPoolSize +
+        ", blockedThreadCheckIntervalUnit=" + blockedThreadCheckIntervalUnit +
+        ", blockedThreadCheckInterval=" + blockedThreadCheckInterval +
+        ", maxEventLoopExecuteTimeUnit=" + maxEventLoopExecuteTimeUnit +
+        ", maxEventLoopExecuteTime=" + maxEventLoopExecuteTime +
+        ", maxWorkerExecuteTimeUnit=" + maxWorkerExecuteTimeUnit +
+        ", maxWorkerExecuteTime=" + maxWorkerExecuteTime +
+        ", clusterManager=" + clusterManager +
+        ", haEnabled=" + haEnabled +
+        ", preferNativeTransport=" + preferNativeTransport +
+        ", quorumSize=" + quorumSize +
+        ", haGroup='" + haGroup + '\'' +
+        ", metrics=" + metricsOptions +
+        ", fileSystemOptions=" + fileSystemOptions +
+        ", addressResolver=" + addressResolverOptions.toJson() +
+        ", addressResolver=" + addressResolverOptions.toJson() +
+        ", eventbus=" + eventBusOptions.toJson() +
+        ", warningExceptionTimeUnit=" + warningExceptionTimeUnit +
+        ", warningExceptionTime=" + warningExceptionTime +
+        '}';
   }
 }

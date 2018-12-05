@@ -1,10 +1,12 @@
 = Enums
 
-[[HttpVersion]]
-== HttpVersion
+[[ClientAuth]]
+== ClientAuth
 
 ++++
- Represents the version of the HTTP protocol.
+ Configures the engine to require/request client authentication.
+ <p/>
+ Created by manishk on 10/2/2015.
 ++++
 '''
 
@@ -12,8 +14,77 @@
 [frame="topbot"]
 |===
 ^|Name | Description
-|[[HTTP_1_0]]`HTTP_1_0`|-
-|[[HTTP_1_1]]`HTTP_1_1`|-
+|[[NONE]]`NONE`|+++
+No client authentication is requested or required.
++++
+|[[REQUEST]]`REQUEST`|+++
+Accept authentication if presented by client. If this option is set and the client chooses
+ not to provide authentication information about itself, the negotiations will continue.
++++
+|[[REQUIRED]]`REQUIRED`|+++
+Require client to present authentication, if not presented then negotiations will be declined.
++++
+|===
+
+[[DnsResponseCode]]
+== DnsResponseCode
+
+++++
+ Represents the possible response codes a server may send after receiving a
+ query. A response code of 0 indicates no error.
+
+++++
+'''
+
+[cols=">25%,75%"]
+[frame="topbot"]
+|===
+^|Name | Description
+|[[NOERROR]]`NOERROR`|+++
+ID 0, no error
++++
+|[[FORMERROR]]`FORMERROR`|+++
+ID 1, format error
++++
+|[[SERVFAIL]]`SERVFAIL`|+++
+ID 2, server failure
++++
+|[[NXDOMAIN]]`NXDOMAIN`|+++
+ID 3, name error
++++
+|[[NOTIMPL]]`NOTIMPL`|+++
+ID 4, not implemented
++++
+|[[REFUSED]]`REFUSED`|+++
+ID 5, operation refused
++++
+|[[YXDOMAIN]]`YXDOMAIN`|+++
+ID 6, domain name should not exist
++++
+|[[YXRRSET]]`YXRRSET`|+++
+ID 7, resource record set should not exist
++++
+|[[NXRRSET]]`NXRRSET`|+++
+ID 8, rrset does not exist
++++
+|[[NOTAUTH]]`NOTAUTH`|+++
+ID 9, not authoritative for zone
++++
+|[[NOTZONE]]`NOTZONE`|+++
+ID 10, name not in zone
++++
+|[[BADVERS]]`BADVERS`|+++
+ID 11, bad extension mechanism for version
++++
+|[[BADSIG]]`BADSIG`|+++
+ID 12, bad signature
++++
+|[[BADKEY]]`BADKEY`|+++
+ID 13, bad key
++++
+|[[BADTIME]]`BADTIME`|+++
+ID 14, bad timestamp
++++
 |===
 
 [[HttpMethod]]
@@ -37,22 +108,14 @@
 |[[TRACE]]`TRACE`|-
 |[[CONNECT]]`CONNECT`|-
 |[[PATCH]]`PATCH`|-
+|[[OTHER]]`OTHER`|-
 |===
 
-[[ClientAuth]]
-== ClientAuth
+[[HttpVersion]]
+== HttpVersion
 
 ++++
- Configures the engine to require/request client authentication. Following are the options :
- <p>
- NONE - No client authentication is requested or required.
- <p>
- REQUEST - Accept authentication if presented by client. If this option is set and the client chooses
-      not to provide authentication information about itself, the negotiations will continue.
- <p>
- REQUIRED - Require client to present authentication, if not presented then negotiations will be declined.
- <p>
- Created by manishk on 10/2/2015.
+ Represents the version of the HTTP protocol.
 ++++
 '''
 
@@ -60,18 +123,16 @@
 [frame="topbot"]
 |===
 ^|Name | Description
-|[[NONE]]`NONE`|-
-|[[REQUEST]]`REQUEST`|-
-|[[REQUIRED]]`REQUIRED`|-
+|[[HTTP_1_0]]`HTTP_1_0`|-
+|[[HTTP_1_1]]`HTTP_1_1`|-
+|[[HTTP_2]]`HTTP_2`|-
 |===
 
-[[DnsResponseCode]]
-== DnsResponseCode
+[[JsonEventType]]
+== JsonEventType
 
 ++++
- Represents the possible response codes a server may send after receiving a
- query. A response code of 0 indicates no error.
-
+ The possibles types of link emitted by the link.
 ++++
 '''
 
@@ -79,65 +140,43 @@
 [frame="topbot"]
 |===
 ^|Name | Description
-|[[NOERROR]]`NOERROR`|
+|[[START_OBJECT]]`START_OBJECT`|+++
+Signals the start of a JSON object.
 +++
-ID 0, no error
+|[[END_OBJECT]]`END_OBJECT`|+++
+Signals the end of a JSON object.
 +++
-|[[FORMERROR]]`FORMERROR`|
+|[[START_ARRAY]]`START_ARRAY`|+++
+Signals the start of a JSON array.
 +++
-ID 1, format error
+|[[END_ARRAY]]`END_ARRAY`|+++
+Signals the end of a JSON array.
 +++
-|[[SERVFAIL]]`SERVFAIL`|
+|[[VALUE]]`VALUE`|+++
+Signals a JSON value.
 +++
-ID 2, server failure
+|===
+
+[[ProxyType]]
+== ProxyType
+
+++++
+ The type of a TCP proxy server.
+++++
+'''
+
+[cols=">25%,75%"]
+[frame="topbot"]
+|===
+^|Name | Description
+|[[HTTP]]`HTTP`|+++
+HTTP CONNECT ssl proxy
 +++
-|[[NXDOMAIN]]`NXDOMAIN`|
+|[[SOCKS4]]`SOCKS4`|+++
+SOCKS4/4a tcp proxy
 +++
-ID 3, name error
-+++
-|[[NOTIMPL]]`NOTIMPL`|
-+++
-ID 4, not implemented
-+++
-|[[REFUSED]]`REFUSED`|
-+++
-ID 5, operation refused
-+++
-|[[YXDOMAIN]]`YXDOMAIN`|
-+++
-ID 6, domain name should not exist
-+++
-|[[YXRRSET]]`YXRRSET`|
-+++
-ID 7, resource record set should not exist
-+++
-|[[NXRRSET]]`NXRRSET`|
-+++
-ID 8, rrset does not exist
-+++
-|[[NOTAUTH]]`NOTAUTH`|
-+++
-ID 9, not authoritative for zone
-+++
-|[[NOTZONE]]`NOTZONE`|
-+++
-ID 10, name not in zone
-+++
-|[[BADVERS]]`BADVERS`|
-+++
-ID 11, bad extension mechanism for version
-+++
-|[[BADSIG]]`BADSIG`|
-+++
-ID 12, bad signature
-+++
-|[[BADKEY]]`BADKEY`|
-+++
-ID 13, bad key
-+++
-|[[BADTIME]]`BADTIME`|
-+++
-ID 14, bad timestamp
+|[[SOCKS5]]`SOCKS5`|+++
+SOCSK5 tcp proxy
 +++
 |===
 
@@ -153,16 +192,13 @@ ID 14, bad timestamp
 [frame="topbot"]
 |===
 ^|Name | Description
-|[[TIMEOUT]]`TIMEOUT`|
-+++
+|[[TIMEOUT]]`TIMEOUT`|+++
 The message send failed because no reply was received before the timeout time.
 +++
-|[[NO_HANDLERS]]`NO_HANDLERS`|
-+++
+|[[NO_HANDLERS]]`NO_HANDLERS`|+++
 The message send failed because no handlers were available to handle the message.
 +++
-|[[RECIPIENT_FAILURE]]`RECIPIENT_FAILURE`|
-+++
+|[[RECIPIENT_FAILURE]]`RECIPIENT_FAILURE`|+++
 The message send failed because the recipient actively sent back a failure (rejected the message)
 +++
 |===

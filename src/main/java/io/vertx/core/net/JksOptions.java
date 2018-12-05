@@ -1,24 +1,24 @@
 /*
- * Copyright (c) 2011-2014 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core.net;
 
 import io.vertx.codegen.annotations.DataObject;
+import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.impl.VertxInternal;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.net.impl.KeyStoreHelper;
+
+import javax.net.ssl.KeyManagerFactory;
 
 /**
  * Key or trust store options configuring private key and/or certificates based on Java Keystore files.
@@ -30,7 +30,7 @@ import io.vertx.core.json.JsonObject;
  * <p>
  * <pre>
  * HttpServerOptions options = HttpServerOptions.httpServerOptions();
- * options.setKeyStore(JKSOptions.options().setPath("/mykeystore.jks").setPassword("foo"));
+ * options.setKeyStore(new JKSOptions().setPath("/mykeystore.jks").setPassword("foo"));
  * </pre>
  *
  * Or directly provided as a buffer:
@@ -38,7 +38,7 @@ import io.vertx.core.json.JsonObject;
  *
  * <pre>
  * Buffer store = vertx.fileSystem().readFileSync("/mykeystore.jks");
- * options.setKeyStore(JKSOptions.options().setValue(store).setPassword("foo"));
+ * options.setKeyStore(new JKSOptions().setValue(store).setPassword("foo"));
  * </pre>
  *
  * @author <a href="mailto:julien@julienviet.com">Julien Viet</a>
@@ -78,6 +78,17 @@ public class JksOptions implements KeyCertOptions, TrustOptions, Cloneable {
   public JksOptions(JsonObject json) {
     super();
     JksOptionsConverter.fromJson(json, this);
+  }
+
+  /**
+   * Convert to JSON
+   *
+   * @return the JSON
+   */
+  public JsonObject toJson() {
+    JsonObject json = new JsonObject();
+    JksOptionsConverter.toJson(this, json);
+    return json;
   }
 
   /**

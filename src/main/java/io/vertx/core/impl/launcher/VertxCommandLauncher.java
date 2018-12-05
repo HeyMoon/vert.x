@@ -1,18 +1,14 @@
 /*
- *  Copyright (c) 2011-2015 The original author or authors
- *  ------------------------------------------------------
- *  All rights reserved. This program and the accompanying materials
- *  are made available under the terms of the Eclipse Public License v1.0
- *  and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *       The Eclipse Public License is available at
- *       http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *       The Apache License v2.0 is available at
- *       http://www.opensource.org/licenses/apache2.0.php
- *
- *  You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
+
 package io.vertx.core.impl.launcher;
 
 import io.vertx.core.cli.*;
@@ -375,6 +371,7 @@ public class VertxCommandLauncher extends UsageMessageFormatter {
     // By default this method retrieve the value from the 'Main-Verticle' Manifest header. However it can be overridden.
 
     String verticle = getMainVerticle();
+    String command = getCommandFromManifest();
     if (verticle != null) {
       // We have a main verticle, append it to the arg list and execute the default command (run)
       String[] newArgs = new String[args.length + 1];
@@ -382,9 +379,12 @@ public class VertxCommandLauncher extends UsageMessageFormatter {
       System.arraycopy(args, 0, newArgs, 1, args.length);
       execute(getDefaultCommand(), newArgs);
       return;
+    } else if (command != null) {
+      execute(command, args);
+      return;
     }
 
-    // Fall backs
+    // Fallbacks
     if (args.length == 0) {
       printGlobalUsage();
     } else {
@@ -401,6 +401,14 @@ public class VertxCommandLauncher extends UsageMessageFormatter {
    * @return the default command if specified in the {@code MANIFEST}, "run" if not found.
    */
   protected String getDefaultCommand() {
+    String fromManifest = getCommandFromManifest();
+    if (fromManifest == null) {
+      return "run";
+    }
+    return fromManifest;
+  }
+
+  protected String getCommandFromManifest() {
     try {
       Enumeration<URL> resources = RunCommand.class.getClassLoader().getResources("META-INF/MANIFEST.MF");
       while (resources.hasMoreElements()) {
@@ -420,7 +428,7 @@ public class VertxCommandLauncher extends UsageMessageFormatter {
     } catch (IOException e) {
       throw new IllegalStateException(e.getMessage());
     }
-    return "run";
+    return null;
   }
 
   /**

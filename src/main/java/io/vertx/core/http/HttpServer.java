@@ -1,28 +1,25 @@
 /*
- * Copyright (c) 2011-2013 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core.http;
 
+import io.vertx.codegen.annotations.CacheReturn;
 import io.vertx.codegen.annotations.GenIgnore;
-import io.vertx.codegen.annotations.Nullable;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Handler;
 import io.vertx.codegen.annotations.Fluent;
 import io.vertx.codegen.annotations.VertxGen;
 import io.vertx.core.metrics.Measured;
+import io.vertx.core.net.SocketAddress;
+import io.vertx.core.streams.ReadStream;
 
 /**
  * An HTTP and WebSockets server.
@@ -44,7 +41,8 @@ public interface HttpServer extends Measured {
    *
    * @return the request stream
    */
-  HttpServerRequestStream requestStream();
+  @CacheReturn
+  ReadStream<HttpServerRequest> requestStream();
 
   /**
    * Set the request handler for the server to {@code requestHandler}. As HTTP requests are received by the server,
@@ -52,6 +50,7 @@ public interface HttpServer extends Measured {
    *
    * @return a reference to this, so the API can be used fluently
    */
+  @Fluent
   HttpServer requestHandler(Handler<HttpServerRequest> handler);
 
   /**
@@ -61,12 +60,31 @@ public interface HttpServer extends Measured {
   Handler<HttpServerRequest> requestHandler();
 
   /**
+   * Set a connection handler for the server.
+   *
+   * @return a reference to this, so the API can be used fluently
+   */
+  @Fluent
+  HttpServer connectionHandler(Handler<HttpConnection> handler);
+
+  /**
+   * Set an exception handler called for socket errors happening before the HTTP connection
+   * is established, e.g during the TLS handshake.
+   *
+   * @param handler the handler to set
+   * @return a reference to this, so the API can be used fluently
+   */
+  @Fluent
+  HttpServer exceptionHandler(Handler<Throwable> handler);
+
+  /**
    * Return the websocket stream for the server. If a websocket connect handshake is successful a
    * new {@link ServerWebSocket} instance will be created and passed to the stream {@link io.vertx.core.streams.ReadStream#handler(io.vertx.core.Handler)}.
    *
    * @return the websocket stream
    */
-  ServerWebSocketStream websocketStream();
+  @CacheReturn
+  ReadStream<ServerWebSocket> websocketStream();
 
   /**
    * Set the websocket handler for the server to {@code wsHandler}. If a websocket connect handshake is successful a
@@ -74,6 +92,7 @@ public interface HttpServer extends Measured {
    *
    * @return a reference to this, so the API can be used fluently
    */
+  @Fluent
   HttpServer websocketHandler(Handler<ServerWebSocket> handler);
 
   /**
@@ -119,6 +138,17 @@ public interface HttpServer extends Measured {
   HttpServer listen(int port, String host, Handler<AsyncResult<HttpServer>> listenHandler);
 
   /**
+   * Tell the server to start listening on the given address supplying
+   * a handler that will be called when the server is actually
+   * listening (or has failed).
+   *
+   * @param address the address to listen on
+   * @param listenHandler  the listen handler
+   */
+  @Fluent
+  HttpServer listen(SocketAddress address, Handler<AsyncResult<HttpServer>> listenHandler);
+
+  /**
    * Like {@link #listen(int, String)} but the server will listen on host "0.0.0.0" and port specified here ignoring
    * any value in the {@link io.vertx.core.http.HttpServerOptions} that was used when creating the server.
    *
@@ -160,4 +190,11 @@ public interface HttpServer extends Measured {
    */
   void close(Handler<AsyncResult<Void>> completionHandler);
 
+  /**
+   * The actual port the server is listening on. This is useful if you bound the server specifying 0 as port number
+   * signifying an ephemeral port
+   *
+   * @return the actual port the server is listening on.
+   */
+  int actualPort();
 }

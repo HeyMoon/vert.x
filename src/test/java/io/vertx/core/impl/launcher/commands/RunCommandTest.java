@@ -1,18 +1,14 @@
 /*
- *  Copyright (c) 2011-2013 The original author or authors
- *  ------------------------------------------------------
- *  All rights reserved. This program and the accompanying materials
- *  are made available under the terms of the Eclipse Public License v1.0
- *  and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *       The Eclipse Public License is available at
- *       http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *       The Apache License v2.0 is available at
- *       http://www.opensource.org/licenses/apache2.0.php
- *
- *  You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
+
 package io.vertx.core.impl.launcher.commands;
 
 import io.vertx.core.Launcher;
@@ -26,9 +22,9 @@ import org.junit.Test;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.file.CopyOption;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -71,7 +67,7 @@ public class RunCommandTest extends CommandTestBase {
   @Test
   public void testDeploymentOfJavaVerticle() {
     cli.dispatch(new Launcher(), new String[] {"run", HttpTestVerticle.class.getName()});
-    waitUntil(() -> {
+    assertWaitUntil(() -> {
       try {
         return getHttpCode() == 200;
       } catch (IOException e) {
@@ -83,7 +79,7 @@ public class RunCommandTest extends CommandTestBase {
   @Test
   public void testDeploymentOfJavaVerticleWithCluster() throws IOException {
     cli.dispatch(new Launcher(), new String[] {"run", HttpTestVerticle.class.getName(), "-cluster"});
-    waitUntil(() -> {
+    assertWaitUntil(() -> {
       try {
         return getHttpCode() == 200;
       } catch (IOException e) {
@@ -107,7 +103,7 @@ public class RunCommandTest extends CommandTestBase {
     setManifest("MANIFEST-Launcher-Missing-Main-Verticle.MF");
     record();
     cli.dispatch(new Launcher(), new String[]{});
-    waitUntil(() -> error.toString().contains("ClassNotFoundException"));
+    assertWaitUntil(() -> error.toString().contains("ClassNotFoundException"));
     stop();
   }
 
@@ -115,7 +111,7 @@ public class RunCommandTest extends CommandTestBase {
   public void testFatJarWithHTTPVerticle() throws IOException, InterruptedException {
     setManifest("MANIFEST-Launcher-Http-Verticle.MF");
     cli.dispatch(new Launcher(), new String[]{});
-    waitUntil(() -> {
+    assertWaitUntil(() -> {
       try {
         return getHttpCode() == 200;
       } catch (IOException e) {
@@ -130,7 +126,7 @@ public class RunCommandTest extends CommandTestBase {
     setManifest("MANIFEST-Launcher-Http-Verticle.MF");
 
     cli.dispatch(new Launcher(), new String[]{"-cluster"});
-    waitUntil(() -> {
+    assertWaitUntil(() -> {
       try {
         return getHttpCode() == 200;
       } catch (IOException e) {
@@ -144,7 +140,7 @@ public class RunCommandTest extends CommandTestBase {
   public void testThatHADeploysVerticleWhenCombinedWithCluster() throws IOException {
     setManifest("MANIFEST-Launcher-Http-Verticle.MF");
     cli.dispatch(new Launcher(), new String[] {"-ha", "-cluster"});
-    waitUntil(() -> {
+    assertWaitUntil(() -> {
       try {
         return getHttpCode() == 200;
       } catch (IOException e) {
@@ -158,7 +154,7 @@ public class RunCommandTest extends CommandTestBase {
   public void testThatHADeploysVerticle() throws IOException {
     setManifest("MANIFEST-Launcher-Http-Verticle.MF");
     cli.dispatch(new Launcher(), new String[] {"-ha", "-cluster"});
-    waitUntil(() -> {
+    assertWaitUntil(() -> {
       try {
         return getHttpCode() == 200;
       } catch (IOException e) {
@@ -170,23 +166,40 @@ public class RunCommandTest extends CommandTestBase {
 
   @Test
   public void testWithConfProvidedInline() throws IOException {
+    long someNumber = new Random().nextLong();
     setManifest("MANIFEST-Launcher-Http-Verticle.MF");
-    cli.dispatch(new Launcher(), new String[] {"--conf={\"name\":\"vertx\"}"});
-    waitUntil(() -> {
+    cli.dispatch(new Launcher(), new String[] {"--conf={\"random\":" + someNumber + "}"});
+    assertWaitUntil(() -> {
       try {
         return getHttpCode() == 200;
       } catch (IOException e) {
         return false;
       }
     });
-    assertThat(getContent().getJsonObject("conf").getString("name")).isEqualToIgnoringCase("vertx");
+    assertThat(getContent().getJsonObject("conf").getLong("random")).isEqualTo(someNumber);
+  }
+
+  @Test
+  public void testWithBrokenConfProvidedInline() throws IOException {
+    setManifest("MANIFEST-Launcher-Http-Verticle.MF");
+    // There is a missing `}` in the json fragment. This is normal, as the test check that the configuration is not
+    // read in this case.
+    cli.dispatch(new Launcher(), new String[] {"--conf={\"name\":\"vertx\""});
+    assertWaitUntil(() -> {
+      try {
+        return getHttpCode() == 200;
+      } catch (IOException e) {
+        return false;
+      }
+    });
+    assertThat(getContent().getJsonObject("conf").toString()).isEqualToIgnoringCase("{}");
   }
 
   @Test
   public void testWithConfProvidedAsFile() throws IOException {
     setManifest("MANIFEST-Launcher-Http-Verticle.MF");
     cli.dispatch(new Launcher(), new String[] {"--conf", "target/test-classes/conf.json"});
-    waitUntil(() -> {
+    assertWaitUntil(() -> {
       try {
         return getHttpCode() == 200;
       } catch (IOException e) {
@@ -200,7 +213,7 @@ public class RunCommandTest extends CommandTestBase {
   public void testMetricsEnabledFromCommandLine() throws IOException {
     setManifest("MANIFEST-Launcher-Http-Verticle.MF");
     cli.dispatch(new Launcher(), new String[] {"-Dvertx.metrics.options.enabled=true"});
-    waitUntil(() -> {
+    assertWaitUntil(() -> {
       try {
         return getHttpCode() == 200;
       } catch (IOException e) {

@@ -1,216 +1,84 @@
 /*
- * Copyright (c) 2011-2014 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core.http.impl;
 
-import io.vertx.core.Context;
+import io.netty.channel.Channel;
+import io.vertx.core.AsyncResult;
+import io.vertx.core.Future;
 import io.vertx.core.Handler;
-import io.vertx.core.http.ConnectionPoolTooBusyException;
-import io.vertx.core.impl.ContextImpl;
-import io.vertx.core.logging.Logger;
-import io.vertx.core.logging.LoggerFactory;
+import io.vertx.core.http.HttpVersion;
+import io.vertx.core.http.impl.pool.Pool;
+import io.vertx.core.impl.ContextInternal;
+import io.vertx.core.spi.metrics.HttpClientMetrics;
 
-import java.util.ArrayDeque;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.BooleanSupplier;
 
 /**
+ * The connection manager associates remote hosts with pools, it also tracks all connections so they can be closed
+ * when the manager is closed.
  *
  * @author <a href="http://tfox.org">Tim Fox</a>
  */
-public abstract class ConnectionManager {
+class ConnectionManager {
 
-  private static final Logger log = LoggerFactory.getLogger(ConnectionManager.class);
-
-  private final int maxSockets;
-  private final boolean keepAlive;
-  private final boolean pipelining;
   private final int maxWaitQueueSize;
-  private final Map<TargetAddress, ConnQueue> connQueues = new ConcurrentHashMap<>();
+  private final HttpClientMetrics metrics; // Shall be removed later combining the PoolMetrics with HttpClientMetrics
+  private final HttpClientImpl client;
+  private final Map<Channel, HttpClientConnection> connectionMap = new ConcurrentHashMap<>();
+  private final Map<EndpointKey, Endpoint> endpointMap = new ConcurrentHashMap<>();
+  private final HttpVersion version;
+  private final long maxSize;
+  private long timerID;
 
-  ConnectionManager(int maxSockets, boolean keepAlive, boolean pipelining, int maxWaitQueueSize) {
-    this.maxSockets = maxSockets;
-    this.keepAlive = keepAlive;
-    this.pipelining = pipelining;
+  ConnectionManager(HttpClientImpl client,
+                    HttpClientMetrics metrics,
+                    HttpVersion version,
+                    long maxSize,
+                    int maxWaitQueueSize) {
+    this.client = client;
     this.maxWaitQueueSize = maxWaitQueueSize;
+    this.metrics = metrics;
+    this.maxSize = maxSize;
+    this.version = version;
   }
 
-  public void getConnection(int port, String host, Handler<ClientConnection> handler, Handler<Throwable> connectionExceptionHandler,
-                            ContextImpl context, BooleanSupplier canceled) {
-    if (!keepAlive && pipelining) {
-      connectionExceptionHandler.handle(new IllegalStateException("Cannot have pipelining with no keep alive"));
-    } else {
-      TargetAddress address = new TargetAddress(host, port);
-      ConnQueue connQueue = connQueues.get(address);
-      if (connQueue == null) {
-        connQueue = new ConnQueue(address);
-        ConnQueue prev = connQueues.putIfAbsent(address, connQueue);
-        if (prev != null) {
-          connQueue = prev;
-        }
-      }
-      connQueue.getConnection(handler, connectionExceptionHandler, context, canceled);
-    }
+  synchronized void start() {
+    long period = client.getOptions().getPoolCleanerPeriod();
+    this.timerID = period > 0 ? client.getVertx().setTimer(period, id -> checkExpired(period)) : -1;
   }
 
-  protected abstract void connect(String host, int port, Handler<ClientConnection> connectHandler, Handler<Throwable> connectErrorHandler, ContextImpl context,
-                                  ConnectionLifeCycleListener listener);
-
-  public void close() {
-    for (ConnQueue queue: connQueues.values()) {
-      queue.closeAllConnections();
-    }
-    connQueues.clear();
+  private synchronized void checkExpired(long period) {
+    long timestamp = System.currentTimeMillis();
+    endpointMap.values().forEach(e -> e.pool.closeIdle(timestamp));
+    timerID = client.getVertx().setTimer(period, id -> checkExpired(period));
   }
 
-  private class ConnQueue implements ConnectionLifeCycleListener {
+  private static final class EndpointKey {
 
-    private final TargetAddress address;
-    private final Queue<Waiter> waiters = new ArrayDeque<>();
-    private final Set<ClientConnection> allConnections = new HashSet<>();
-    private final Queue<ClientConnection> availableConnections = new ArrayDeque<>();
-    private int connCount;
+    private final boolean ssl;
+    private final int port;
+    private final String peerHost;
+    private final String host;
 
-    ConnQueue(TargetAddress address) {
-      this.address = address;
-    }
-
-    public synchronized void getConnection(Handler<ClientConnection> handler, Handler<Throwable> connectionExceptionHandler,
-                                           ContextImpl context, BooleanSupplier canceled) {
-      ClientConnection conn = availableConnections.poll();
-      if (conn != null && !conn.isClosed()) {
-        if (context == null) {
-          context = conn.getContext();
-        } else if (context != conn.getContext()) {
-          log.warn("Reusing a connection with a different context: an HttpClient is probably shared between different Verticles");
-        }
-        context.runOnContext(v -> handler.handle(conn));
-      } else if (connCount == maxSockets) {
-        // Wait in queue
-        if (maxWaitQueueSize < 0 || waiters.size() < maxWaitQueueSize) {
-          waiters.add(new Waiter(handler, connectionExceptionHandler, context, canceled));
-        } else {
-          connectionExceptionHandler.handle(new ConnectionPoolTooBusyException("Connection pool reached max wait queue size of " + maxWaitQueueSize));
-        }
-      } else {
-        // Create a new connection
-        createNewConnection(handler, connectionExceptionHandler, context);
+    EndpointKey(boolean ssl, int port, String peerHost, String host) {
+      if (host == null) {
+        throw new NullPointerException("No null host");
       }
-    }
-
-    // Called when the request has ended
-    public synchronized void requestEnded(ClientConnection conn) {
-      if (pipelining) {
-        // Maybe the connection can be reused
-        Waiter waiter = getNextWaiter();
-        if (waiter != null) {
-          Context context = waiter.context;
-          if (context == null) {
-            context = conn.getContext();
-          }
-          context.runOnContext(v -> waiter.handler.handle(conn));
-        }
+      if (peerHost == null) {
+        throw new NullPointerException("No null peer host");
       }
-    }
-
-    // Called when the response has ended
-    public synchronized void responseEnded(ClientConnection conn, boolean close) {
-      if ((pipelining || keepAlive) && !close) {
-        if (conn.getCurrentRequest() == null) {
-          Waiter waiter = getNextWaiter();
-          if (waiter != null) {
-            Context context = waiter.context;
-            if (context == null) {
-              context = conn.getContext();
-            }
-            context.runOnContext(v -> waiter.handler.handle(conn));
-          } else if (conn.getOutstandingRequestCount() == 0) {
-            // Return to set of available from here to not return it several times
-            availableConnections.add(conn);
-          }
-        }
-      } else {
-        // Close it now
-        conn.close();
-      }
-    }
-
-    void closeAllConnections() {
-      Set<ClientConnection> copy;
-      synchronized (this) {
-        copy = new HashSet<>(allConnections);
-        allConnections.clear();
-      }
-      // Close outside sync block to avoid deadlock
-      for (ClientConnection conn: copy) {
-        try {
-          conn.close();
-        } catch (Throwable t) {
-          log.error("Failed to close connection", t);
-        }
-      }
-    }
-
-    private void createNewConnection(Handler<ClientConnection> handler, Handler<Throwable> connectionExceptionHandler, ContextImpl context) {
-      connCount++;
-      connect(address.host, address.port, conn -> {
-        synchronized (ConnectionManager.this) {
-          allConnections.add(conn);
-        }
-        handler.handle(conn);
-      }, connectionExceptionHandler, context, this);
-    }
-
-    private Waiter getNextWaiter() {
-      // See if there are any non-canceled waiters in the queue
-      Waiter waiter = waiters.poll();
-      while (waiter != null && waiter.canceled.getAsBoolean()) {
-        waiter = waiters.poll();
-      }
-      return waiter;
-    }
-
-    // Called if the connection is actually closed, OR the connection attempt failed - in the latter case
-    // conn will be null
-    public synchronized void connectionClosed(ClientConnection conn) {
-      connCount--;
-      if (conn != null) {
-        allConnections.remove(conn);
-        availableConnections.remove(conn);
-      }
-      Waiter waiter = getNextWaiter();
-      if (waiter != null) {
-        // There's a waiter - so it can have a new connection
-        createNewConnection(waiter.handler, waiter.connectionExceptionHandler, waiter.context);
-      } else if (connCount == 0) {
-        // No waiters and no connections - remove the ConnQueue
-        connQueues.remove(address);
-      }
-    }
-  }
-
-  private static class TargetAddress {
-    final String host;
-    final int port;
-
-    private TargetAddress(String host, int port) {
+      this.ssl = ssl;
+      this.peerHost = peerHost;
       this.host = host;
       this.port = port;
     }
@@ -219,34 +87,89 @@ public abstract class ConnectionManager {
     public boolean equals(Object o) {
       if (this == o) return true;
       if (o == null || getClass() != o.getClass()) return false;
-      TargetAddress that = (TargetAddress) o;
-      if (port != that.port) return false;
-      if (host != null ? !host.equals(that.host) : that.host != null) return false;
-      return true;
+      EndpointKey that = (EndpointKey) o;
+      return ssl == that.ssl && port == that.port && peerHost.equals(that.peerHost) && host.equals(that.host);
     }
 
     @Override
     public int hashCode() {
-      int result = host != null ? host.hashCode() : 0;
+      int result = ssl ? 1 : 0;
+      result = 31 * result + peerHost.hashCode();
+      result = 31 * result + host.hashCode();
       result = 31 * result + port;
       return result;
     }
   }
 
-  private static class Waiter {
-    final Handler<ClientConnection> handler;
-    final Handler<Throwable> connectionExceptionHandler;
-    final ContextImpl context;
-    final BooleanSupplier canceled;
+  class Endpoint {
 
-    private Waiter(Handler<ClientConnection> handler, Handler<Throwable> connectionExceptionHandler, ContextImpl context,
-                   BooleanSupplier canceled) {
-      this.handler = handler;
-      this.connectionExceptionHandler = connectionExceptionHandler;
-      this.context = context;
-      this.canceled = canceled;
+    private final Pool<HttpClientConnection> pool;
+    private final Object metric;
+
+    public Endpoint(Pool<HttpClientConnection> pool, Object metric) {
+      this.pool = pool;
+      this.metric = metric;
     }
   }
 
+  void getConnection(ContextInternal ctx, String peerHost, boolean ssl, int port, String host, Handler<AsyncResult<HttpClientConnection>> handler) {
+    EndpointKey key = new EndpointKey(ssl, port, peerHost, host);
+    while (true) {
+      Endpoint endpoint = endpointMap.computeIfAbsent(key, targetAddress -> {
+        int maxPoolSize = Math.max(client.getOptions().getMaxPoolSize(), client.getOptions().getHttp2MaxPoolSize());
+        Object metric = metrics != null ? metrics.createEndpoint(host, port, maxPoolSize) : null;
+        HttpChannelConnector connector = new HttpChannelConnector(client, metric, version, ssl, peerHost, host, port);
+        Pool<HttpClientConnection> pool = new Pool<>(connector, maxWaitQueueSize, connector.weight(), maxSize,
+          v -> {
+            if (metrics != null) {
+              metrics.closeEndpoint(host, port, metric);
+            }
+            endpointMap.remove(key);
+          },
+          connectionMap::put,
+          connectionMap::remove,
+          false);
+        return new Endpoint(pool, metric);
+      });
+      Object metric;
+      if (metrics != null) {
+        metric = metrics.enqueueRequest(endpoint.metric);
+      } else {
+        metric = null;
+      }
 
+      if (endpoint.pool.getConnection(ctx, ar -> {
+        if (ar.succeeded()) {
+
+          HttpClientConnection conn = ar.result();
+
+          if (metrics != null) {
+            metrics.dequeueRequest(endpoint.metric, metric);
+          }
+
+          handler.handle(Future.succeededFuture(conn));
+        } else {
+          if (metrics != null) {
+            metrics.dequeueRequest(endpoint.metric, metric);
+          }
+          handler.handle(Future.failedFuture(ar.cause()));
+        }
+      })) {
+        break;
+      }
+    }
+  }
+
+  public void close() {
+    synchronized (this) {
+      if (timerID >= 0) {
+        client.getVertx().cancelTimer(timerID);
+        timerID = -1;
+      }
+    }
+    endpointMap.clear();
+    for (HttpClientConnection conn : connectionMap.values()) {
+      conn.close();
+    }
+  }
 }

@@ -1,35 +1,29 @@
 /*
- * Copyright (c) 2011-2013 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core;
 
 import io.netty.channel.EventLoopGroup;
-import io.vertx.codegen.annotations.CacheReturn;
-import io.vertx.codegen.annotations.GenIgnore;
-import io.vertx.codegen.annotations.Nullable;
-import io.vertx.codegen.annotations.VertxGen;
+import io.vertx.codegen.annotations.*;
 import io.vertx.core.datagram.DatagramSocket;
 import io.vertx.core.datagram.DatagramSocketOptions;
 import io.vertx.core.dns.DnsClient;
+import io.vertx.core.dns.DnsClientOptions;
 import io.vertx.core.eventbus.EventBus;
 import io.vertx.core.file.FileSystem;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientOptions;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.http.HttpServerOptions;
+import io.vertx.core.impl.resolver.DnsResolverProvider;
 import io.vertx.core.metrics.Measured;
 import io.vertx.core.net.NetClient;
 import io.vertx.core.net.NetClientOptions;
@@ -41,6 +35,8 @@ import io.vertx.core.spi.VertxFactory;
 import io.vertx.core.streams.ReadStream;
 
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 /**
  * The entry point into the Vert.x Core API.
@@ -209,13 +205,31 @@ public interface Vertx extends Measured {
   EventBus eventBus();
 
   /**
-   * Create a DNS client to connect to a DNS server at the specified host and port
+   * Create a DNS client to connect to a DNS server at the specified host and port, with the default query timeout (5 seconds)
+   * <p/>
    *
    * @param port  the port
    * @param host  the host
    * @return the DNS client
    */
   DnsClient createDnsClient(int port, String host);
+
+  /**
+   * Create a DNS client to connect to the DNS server configured by {@link VertxOptions#getAddressResolverOptions()}
+   * <p>
+   * DNS client takes the first configured resolver address provided by {@link DnsResolverProvider#nameServerAddresses()}}
+   *
+   * @return the DNS client
+   */
+  DnsClient createDnsClient();
+
+  /**
+   * Create a DNS client to connect to a DNS server
+   *
+   * @param options the client options
+   * @return the DNS client
+   */
+  DnsClient createDnsClient(DnsClientOptions options);
 
   /**
    * Get the shared data object. There is a single instance of SharedData per Vertx instance.
@@ -281,13 +295,13 @@ public interface Vertx extends Measured {
   void runOnContext(Handler<Void> action);
 
   /**
-	 * Stop the the Vertx instance and release any resources held by it.
+   * Stop the the Vertx instance and release any resources held by it.
    * <p>
    * The instance cannot be used after it has been closed.
    * <p>
    * The actual close is asynchronous and may not complete until after the call has returned.
-	 */
-	void close();
+   */
+  void close();
 
   /**
    * Like {@link #close} but the completionHandler will be called when the close is complete
@@ -305,7 +319,7 @@ public interface Vertx extends Measured {
    *
    * @param verticle  the verticle instance to deploy.
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   void deployVerticle(Verticle verticle);
 
   /**
@@ -319,7 +333,7 @@ public interface Vertx extends Measured {
    * @param verticle  the verticle instance to deploy
    * @param completionHandler  a handler which will be notified when the deployment is complete
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   void deployVerticle(Verticle verticle, Handler<AsyncResult<String>> completionHandler);
 
   /**
@@ -329,8 +343,27 @@ public interface Vertx extends Measured {
    * @param verticle  the verticle instance to deploy
    * @param options  the deployment options.
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   void deployVerticle(Verticle verticle, DeploymentOptions options);
+
+  /**
+   * Like {@link #deployVerticle(Verticle, DeploymentOptions)} but {@link Verticle} instance is created by invoking the
+   * default constructor of {@code verticleClass}.
+   */
+  @GenIgnore
+  void deployVerticle(Class<? extends Verticle> verticleClass, DeploymentOptions options);
+
+  /**
+   * Like {@link #deployVerticle(Verticle, DeploymentOptions)} but {@link Verticle} instance is created by invoking the
+   * {@code verticleSupplier}.
+   * <p>
+   * The supplier will be invoked as many times as {@link DeploymentOptions#getInstances()}.
+   * It must not return the same instance twice.
+   * <p>
+   * Note that the supplier will be invoked on the caller thread.
+   */
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
+  void deployVerticle(Supplier<Verticle> verticleSupplier, DeploymentOptions options);
 
   /**
    * Like {@link #deployVerticle(Verticle, Handler)} but {@link io.vertx.core.DeploymentOptions} are provided to configure the
@@ -340,8 +373,27 @@ public interface Vertx extends Measured {
    * @param options  the deployment options.
    * @param completionHandler  a handler which will be notified when the deployment is complete
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   void deployVerticle(Verticle verticle, DeploymentOptions options, Handler<AsyncResult<String>> completionHandler);
+
+  /**
+   * Like {@link #deployVerticle(Verticle, DeploymentOptions, Handler)} but {@link Verticle} instance is created by
+   * invoking the default constructor of {@code verticleClass}.
+   */
+  @GenIgnore
+  void deployVerticle(Class<? extends Verticle> verticleClass, DeploymentOptions options, Handler<AsyncResult<String>> completionHandler);
+
+  /**
+   * Like {@link #deployVerticle(Verticle, DeploymentOptions, Handler)} but {@link Verticle} instance is created by
+   * invoking the {@code verticleSupplier}.
+   * <p>
+   * The supplier will be invoked as many times as {@link DeploymentOptions#getInstances()}.
+   * It must not return the same instance twice.
+   * <p>
+   * Note that the supplier will be invoked on the caller thread.
+   */
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
+  void deployVerticle(Supplier<Verticle> verticleSupplier, DeploymentOptions options, Handler<AsyncResult<String>> completionHandler);
 
   /**
    * Deploy a verticle instance given a name.
@@ -416,7 +468,7 @@ public interface Vertx extends Measured {
    *
    * @param factory the factory to register
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   void registerVerticleFactory(VerticleFactory factory);
 
   /**
@@ -424,7 +476,7 @@ public interface Vertx extends Measured {
    *
    * @param factory the factory to unregister
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   void unregisterVerticleFactory(VerticleFactory factory);
 
   /**
@@ -432,7 +484,7 @@ public interface Vertx extends Measured {
    *
    * @return the set of verticle factories
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   Set<VerticleFactory> verticleFactories();
 
   /**
@@ -464,20 +516,75 @@ public interface Vertx extends Measured {
    *                 guarantees
    * @param <T> the type of the result
    */
-  <T> void executeBlocking(Handler<Future<T>> blockingCodeHandler, boolean ordered, Handler<AsyncResult<T>> resultHandler);
+  <T> void executeBlocking(Handler<Future<T>> blockingCodeHandler, boolean ordered, Handler<AsyncResult<@Nullable T>> resultHandler);
 
   /**
    * Like {@link #executeBlocking(Handler, boolean, Handler)} called with ordered = true.
    */
-  <T> void executeBlocking(Handler<Future<T>> blockingCodeHandler, Handler<AsyncResult<T>> resultHandler);
+  <T> void executeBlocking(Handler<Future<T>> blockingCodeHandler, Handler<AsyncResult<@Nullable T>> resultHandler);
 
   /**
    * Return the Netty EventLoopGroup used by Vert.x
    *
    * @return the EventLoopGroup
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   EventLoopGroup nettyEventLoopGroup();
 
-  static final VertxFactory factory = ServiceHelper.loadFactory(VertxFactory.class);
+  /**
+   * Like {@link #createSharedWorkerExecutor(String, int)} but with the {@link VertxOptions#setWorkerPoolSize} {@code poolSize}.
+   */
+  WorkerExecutor createSharedWorkerExecutor(String name);
+
+  /**
+   * Like {@link #createSharedWorkerExecutor(String, int, long)} but with the {@link VertxOptions#setMaxWorkerExecuteTime} {@code maxExecuteTime}.
+   */
+  WorkerExecutor createSharedWorkerExecutor(String name, int poolSize);
+
+  /**
+   * Like {@link #createSharedWorkerExecutor(String, int, long, TimeUnit)} but with the {@link TimeUnit#NANOSECONDS ns unit}.
+   */
+  WorkerExecutor createSharedWorkerExecutor(String name, int poolSize, long maxExecuteTime);
+
+  /**
+   * Create a named worker executor, the executor should be closed when it's not needed anymore to release
+   * resources.<p/>
+   *
+   * This method can be called mutiple times with the same {@code name}. Executors with the same name will share
+   * the same worker pool. The worker pool size , max execute time and unit of max execute time are set when the worker pool is created and
+   * won't change after.<p>
+   *
+   * The worker pool is released when all the {@link WorkerExecutor} sharing the same name are closed.
+   *
+   * @param name the name of the worker executor
+   * @param poolSize the size of the pool
+   * @param maxExecuteTime the value of max worker execute time
+   * @param maxExecuteTimeUnit the value of unit of max worker execute time
+   * @return the named worker executor
+   */
+  WorkerExecutor createSharedWorkerExecutor(String name, int poolSize, long maxExecuteTime, TimeUnit maxExecuteTimeUnit);
+
+  /**
+   * @return whether the native transport is used
+   */
+  @CacheReturn
+  boolean isNativeTransportEnabled();
+
+  /**
+   * Set a default exception handler for {@link Context}, set on {@link Context#exceptionHandler(Handler)} at creation.
+   *
+   * @param handler the exception handler
+   * @return a reference to this, so the API can be used fluently
+   */
+  @Fluent
+  Vertx exceptionHandler(@Nullable Handler<Throwable> handler);
+
+  /**
+   * @return the current default exception handler
+   */
+  @GenIgnore
+  @Nullable Handler<Throwable> exceptionHandler();
+
+  @GenIgnore
+  VertxFactory factory = ServiceHelper.loadFactory(VertxFactory.class);
 }

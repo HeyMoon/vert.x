@@ -1,26 +1,17 @@
 /*
- * Copyright (c) 2011-2013 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core.http;
 
-import io.vertx.codegen.annotations.CacheReturn;
-import io.vertx.codegen.annotations.Fluent;
-import io.vertx.codegen.annotations.GenIgnore;
-import io.vertx.codegen.annotations.Nullable;
-import io.vertx.codegen.annotations.VertxGen;
+import io.vertx.codegen.annotations.*;
 import io.vertx.core.Handler;
 import io.vertx.core.MultiMap;
 import io.vertx.core.buffer.Buffer;
@@ -44,6 +35,9 @@ import java.util.List;
 public interface HttpClientResponse extends ReadStream<Buffer> {
 
   @Override
+  HttpClientResponse fetch(long amount);
+
+  @Override
   HttpClientResponse resume();
 
   @Override
@@ -57,6 +51,11 @@ public interface HttpClientResponse extends ReadStream<Buffer> {
 
   @Override
   HttpClientResponse endHandler(Handler<Void> endHandler);
+
+  /**
+   * @return the version of the response
+   */
+  HttpVersion version();
 
   /**
    * @return the status code of the response
@@ -88,7 +87,7 @@ public interface HttpClientResponse extends ReadStream<Buffer> {
    * @param headerName  the header name
    * @return the header value
    */
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   String getHeader(CharSequence headerName);
 
   /**
@@ -123,9 +122,20 @@ public interface HttpClientResponse extends ReadStream<Buffer> {
   HttpClientResponse bodyHandler(Handler<Buffer> bodyHandler);
 
   /**
+   * Set an custom frame handler. The handler will get notified when the http stream receives an custom HTTP/2
+   * frame. HTTP/2 permits extension of the protocol.
+   *
+   * @return a reference to this, so the API can be used fluently
+   */
+  @Fluent
+  HttpClientResponse customFrameHandler(Handler<HttpFrame> handler);
+
+  /**
    * Get a net socket for the underlying connection of this request.
    * <p>
-   * USE THIS WITH CAUTION! Writing to the socket directly if you don't know what you're doing can easily break the HTTP protocol
+   * USE THIS WITH CAUTION! Writing to the socket directly if you don't know what you're doing can easily break the HTTP protocol.
+   * <p>
+   * HTTP/1.1 pipe-lined requests cannot support net socket upgrade.
    * <p>
    * One valid use-case for calling this is to receive the {@link io.vertx.core.net.NetSocket} after a HTTP CONNECT was issued to the
    * remote peer and it responded with a status code of 200.
@@ -135,4 +145,19 @@ public interface HttpClientResponse extends ReadStream<Buffer> {
   @CacheReturn
   NetSocket netSocket();
 
+  /**
+   * @return the corresponding request
+   */
+  @CacheReturn
+  HttpClientRequest request();
+
+  /**
+   * Set an handler for stream priority changes.
+   * <p/>
+   * This is not implemented for HTTP/1.x.
+   *
+   * @param handler the handler to be called when the stream priority changes
+   */
+  @Fluent
+  HttpClientResponse streamPriorityHandler(Handler<StreamPriority> handler);
 }

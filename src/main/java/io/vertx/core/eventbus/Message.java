@@ -1,17 +1,12 @@
 /*
- * Copyright (c) 2011-2014 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core.eventbus;
@@ -28,8 +23,7 @@ import io.vertx.core.MultiMap;
  * <p>
  * Messages have a {@link #body}, which can be null, and also {@link #headers}, which can be empty.
  * <p>
- * If the message was sent specifying a reply handler it will also have a {@link #replyAddress}. In that case the message
- * can be replied to using that reply address, or, more simply by just using {@link #reply}.
+ * If the message was sent specifying a reply handler, it can be replied to using {@link #reply}.
  * <p>
  * If you want to notify the sender that processing failed, then {@link #fail} can be called.
  *
@@ -65,6 +59,13 @@ public interface Message<T> {
    */
   @Nullable
   String replyAddress();
+
+  /**
+   * Signals if this message represents a send or publish event.
+   *
+   * @return true if this is a send.
+   */
+  boolean isSend();
 
   /**
    * Reply to this message.

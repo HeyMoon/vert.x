@@ -1,25 +1,21 @@
 /*
- * Copyright (c) 2011-2013 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core;
 
+import io.vertx.codegen.annotations.Fluent;
 import io.vertx.codegen.annotations.GenIgnore;
 import io.vertx.codegen.annotations.Nullable;
 import io.vertx.codegen.annotations.VertxGen;
-import io.vertx.core.impl.ContextImpl;
+import io.vertx.core.impl.ContextInternal;
 import io.vertx.core.json.JsonObject;
 
 import java.util.List;
@@ -70,7 +66,7 @@ public interface Context {
    * @return true if current thread is a worker thread, false otherwise
    */
   static boolean isOnWorkerThread() {
-    return ContextImpl.isOnWorkerThread();
+    return ContextInternal.isOnWorkerThread();
   }
 
   /**
@@ -82,7 +78,7 @@ public interface Context {
    * @return true if current thread is a worker thread, false otherwise
    */
   static boolean isOnEventLoopThread() {
-    return ContextImpl.isOnEventLoopThread();
+    return ContextInternal.isOnEventLoopThread();
   }
 
   /**
@@ -91,7 +87,7 @@ public interface Context {
    * @return true if current thread is a Vert.x thread, false otherwise
    */
   static boolean isOnVertxThread() {
-    return ContextImpl.isOnVertxThread();
+    return ContextInternal.isOnVertxThread();
   }
 
   /**
@@ -120,7 +116,7 @@ public interface Context {
    *                 guarantees
    * @param <T> the type of the result
    */
-  <T> void executeBlocking(Handler<Future<T>> blockingCodeHandler, boolean ordered, Handler<AsyncResult<T>> resultHandler);
+  <T> void executeBlocking(Handler<Future<T>> blockingCodeHandler, boolean ordered, Handler<AsyncResult<@Nullable T>> resultHandler);
 
   /**
    * Invoke {@link #executeBlocking(Handler, boolean, Handler)} with order = true.
@@ -128,7 +124,7 @@ public interface Context {
    * @param resultHandler  handler that will be called when the blocking code is complete
    * @param <T> the type of the result
    */
-  <T> void executeBlocking(Handler<Future<T>> blockingCodeHandler, Handler<AsyncResult<T>> resultHandler);
+  <T> void executeBlocking(Handler<Future<T>> blockingCodeHandler, Handler<AsyncResult<@Nullable T>> resultHandler);
 
   /**
    * If the context is associated with a Verticle deployment, this returns the deployment ID of that deployment.
@@ -217,10 +213,28 @@ public interface Context {
    */
   int getInstanceCount();
 
+  /**
+   * Set an exception handler called when the context runs an action throwing an uncaught throwable.<p/>
+   *
+   * When this handler is called, {@link Vertx#currentContext()} will return this context.
+   *
+   * @param handler the exception handler
+   * @return a reference to this, so the API can be used fluently
+   */
+  @Fluent
+  Context exceptionHandler(@Nullable Handler<Throwable> handler);
+
+  /**
+   * @return the current exception handler of this context
+   */
   @GenIgnore
+  @Nullable
+  Handler<Throwable> exceptionHandler();
+
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   void addCloseHook(Closeable hook);
 
-  @GenIgnore
+  @GenIgnore(GenIgnore.PERMITTED_TYPE)
   void removeCloseHook(Closeable hook);
 
 }

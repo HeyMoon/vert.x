@@ -1,26 +1,23 @@
 /*
- * Copyright 2014 Red Hat, Inc.
+ * Copyright (c) 2014 Red Hat, Inc. and others
  *
- *  All rights reserved. This program and the accompanying materials
- *  are made available under the terms of the Eclipse Public License v1.0
- *  and Apache License v2.0 which accompanies this distribution.
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *  The Eclipse Public License is available at
- *  http://www.eclipse.org/legal/epl-v10.html
- *
- *  The Apache License v2.0 is available at
- *  http://www.opensource.org/licenses/apache2.0.php
- *
- *  You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package examples;
 
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
-import io.vertx.core.eventbus.DeliveryOptions;
 import io.vertx.core.eventbus.EventBus;
+import io.vertx.core.eventbus.EventBusOptions;
 import io.vertx.core.eventbus.MessageConsumer;
+import io.vertx.core.http.ClientAuth;
+import io.vertx.core.net.JksOptions;
 
 /**
  * Created by tim on 09/01/15.
@@ -94,6 +91,44 @@ public class EventBusExamples {
 
   public void example12() {
     VertxOptions options = new VertxOptions();
+    Vertx.clusteredVertx(options, res -> {
+      if (res.succeeded()) {
+        Vertx vertx = res.result();
+        EventBus eventBus = vertx.eventBus();
+        System.out.println("We now have a clustered event bus: " + eventBus);
+      } else {
+        System.out.println("Failed: " + res.cause());
+      }
+    });
+  }
+
+  public void example13() {
+    VertxOptions options = new VertxOptions()
+        .setEventBusOptions(new EventBusOptions()
+            .setSsl(true)
+            .setKeyStoreOptions(new JksOptions().setPath("keystore.jks").setPassword("wibble"))
+            .setTrustStoreOptions(new JksOptions().setPath("keystore.jks").setPassword("wibble"))
+            .setClientAuth(ClientAuth.REQUIRED)
+        );
+
+    Vertx.clusteredVertx(options, res -> {
+      if (res.succeeded()) {
+        Vertx vertx = res.result();
+        EventBus eventBus = vertx.eventBus();
+        System.out.println("We now have a clustered event bus: " + eventBus);
+      } else {
+        System.out.println("Failed: " + res.cause());
+      }
+    });
+  }
+
+  public void example14() {
+    VertxOptions options = new VertxOptions()
+        .setEventBusOptions(new EventBusOptions()
+            .setClusterPublicHost("whatever")
+            .setClusterPublicPort(1234)
+        );
+
     Vertx.clusteredVertx(options, res -> {
       if (res.succeeded()) {
         Vertx vertx = res.result();

@@ -1,17 +1,12 @@
 /*
- * Copyright (c) 2011-2014 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core;
@@ -157,21 +152,21 @@ public class Starter {
    * Hook for sub classes of {@link Starter} before the vertx instance is started.
    */
   protected void beforeStartingVertx(VertxOptions options) {
-    
+
   }
-  
+
   /**
    * Hook for sub classes of {@link Starter} after the vertx instance is started.
    */
   protected void afterStartingVertx() {
-    
+
   }
-  
+
   /**
    * Hook for sub classes of {@link Starter} before the verticle is deployed.
    */
   protected void beforeDeployingVerticle(DeploymentOptions deploymentOptions) {
-    
+
   }
 
   /**
@@ -182,7 +177,7 @@ public class Starter {
     // Default behaviour is to close Vert.x if the deploy failed
     vertx.close();
   }
-  
+
 
   private Vertx startVertx(boolean clustered, boolean ha, Args args) {
     MetricsOptions metricsOptions;
@@ -338,7 +333,7 @@ public class Starter {
     }));
   }
 
-  private <T> AsyncResultHandler<T> createLoggingHandler(final String message, final Handler<AsyncResult<T>> completionHandler) {
+  private <T> Handler<AsyncResult<T>> createLoggingHandler(final String message, final Handler<AsyncResult<T>> completionHandler) {
     return res -> {
       if (res.failed()) {
         Throwable cause = res.cause();
@@ -385,6 +380,8 @@ public class Starter {
             arg = Long.valueOf(propVal);
           } else if (argType.equals(boolean.class)) {
             arg = Boolean.valueOf(propVal);
+          } else if (argType.isEnum()){
+            arg = Enum.valueOf((Class<? extends Enum>)argType, propVal);
           } else {
             log.warn("Invalid type for setter: " + argType);
             continue;
@@ -461,7 +458,7 @@ public class Starter {
   }
 
   public String getVersion() {
-    try (InputStream is = getClass().getClassLoader().getResourceAsStream("vertx-version.txt")) {
+    try (InputStream is = getClass().getClassLoader().getResourceAsStream("META-INF/vertx/vertx-version.txt")) {
       if (is == null) {
         throw new IllegalStateException("Cannot find vertx-version.txt on classpath");
       }
@@ -477,20 +474,36 @@ public class Starter {
     try {
       Enumeration<URL> resources = getClass().getClassLoader().getResources("META-INF/MANIFEST.MF");
       while (resources.hasMoreElements()) {
-        Manifest manifest = new Manifest(resources.nextElement().openStream());
-        Attributes attributes = manifest.getMainAttributes();
-        String mainClass = attributes.getValue("Main-Class");
-        if (Starter.class.getName().equals(mainClass)) {
-          String theMainVerticle = attributes.getValue("Main-Verticle");
-          if (theMainVerticle != null) {
-            return theMainVerticle;
+        InputStream stream = null;
+        try {
+          stream = resources.nextElement().openStream();
+          Manifest manifest = new Manifest(stream);
+          Attributes attributes = manifest.getMainAttributes();
+          String mainClass = attributes.getValue("Main-Class");
+          if (Starter.class.getName().equals(mainClass)) {
+            String theMainVerticle = attributes.getValue("Main-Verticle");
+            if (theMainVerticle != null) {
+              return theMainVerticle;
+            }
           }
+        } finally {
+          closeQuietly(stream);
         }
       }
     } catch (IOException e) {
       throw new IllegalStateException(e.getMessage());
     }
     return null;
+  }
+
+  private void closeQuietly(InputStream stream) {
+    if (stream != null) {
+      try {
+        stream.close();
+      } catch (IOException e) {
+        // Ignore it.
+      }
+    }
   }
 
   private void displaySyntax() {

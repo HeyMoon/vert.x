@@ -1,22 +1,20 @@
 /*
- * Copyright (c) 2011-2014 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2018 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core.impl;
 
-import io.vertx.core.*;
+import io.vertx.core.AsyncResult;
+import io.vertx.core.DeploymentOptions;
+import io.vertx.core.Handler;
+import io.vertx.core.VertxException;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
@@ -29,6 +27,10 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+
+import static java.util.concurrent.TimeUnit.MINUTES;
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 /**
  *
@@ -96,7 +98,6 @@ public class HAManager {
 
   private static final Logger log = LoggerFactory.getLogger(HAManager.class);
 
-  private static final String CLUSTER_MAP_NAME = "__vertx.haInfo";
   private static final long QUORUM_CHECK_PERIOD = 1000;
 
   private final VertxInternal vertx;
@@ -113,36 +114,42 @@ public class HAManager {
   private long quorumTimerID;
   private volatile boolean attainedQuorum;
   private volatile FailoverCompleteHandler failoverCompleteHandler;
-  private volatile FailoverCompleteHandler nodeCrashedHandler;
   private volatile boolean failDuringFailover;
   private volatile boolean stopped;
   private volatile boolean killed;
+  private Consumer<Set<String>> clusterViewChangedHandler;
 
-  public HAManager(VertxInternal vertx, DeploymentManager deploymentManager,
-                   ClusterManager clusterManager, int quorumSize, String group, boolean enabled) {
+  public HAManager(VertxInternal vertx, DeploymentManager deploymentManager, ClusterManager clusterManager,
+                   Map<String, String> clusterMap, int quorumSize, String group, boolean enabled) {
     this.vertx = vertx;
     this.deploymentManager = deploymentManager;
     this.clusterManager = clusterManager;
+    this.clusterMap = clusterMap;
     this.quorumSize = enabled ? quorumSize : 0;
     this.group = enabled ? group : "__DISABLED__";
     this.enabled = enabled;
-    this.haInfo = new JsonObject();
-    haInfo.put("verticles", new JsonArray());
-    haInfo.put("group", this.group);
-    this.clusterMap = clusterManager.getSyncMap(CLUSTER_MAP_NAME);
+    this.haInfo = new JsonObject().put("verticles", new JsonArray()).put("group", this.group);
     this.nodeID = clusterManager.getNodeID();
+  }
+
+  /**
+   * Initialize the ha manager, i.e register the node listener to propagates the node events and
+   * start the quorum timer. The quorum will be checked as well.
+   */
+  void init() {
+    synchronized (haInfo) {
+      clusterMap.put(nodeID, haInfo.encode());
+    }
     clusterManager.nodeListener(new NodeListener() {
       @Override
       public void nodeAdded(String nodeID) {
         HAManager.this.nodeAdded(nodeID);
       }
-
       @Override
       public void nodeLeft(String leftNodeID) {
         HAManager.this.nodeLeft(leftNodeID);
       }
     });
-    clusterMap.put(nodeID, haInfo.encode());
     quorumTimerID = vertx.setPeriodic(QUORUM_CHECK_PERIOD, tid -> checkHADeployments());
     // Call check quorum to compute whether we have an initial quorum
     synchronized (this) {
@@ -191,7 +198,6 @@ public class HAManager {
   public void stop() {
     if (!stopped) {
       if (clusterManager.isActive()) {
-
         clusterMap.remove(nodeID);
       }
       vertx.cancelTimer(quorumTimerID);
@@ -202,12 +208,35 @@ public class HAManager {
   public void simulateKill() {
     if (!stopped) {
       killed = true;
+      CountDownLatch latch = new CountDownLatch(1);
       clusterManager.leave(ar -> {
         if (ar.failed()) {
           log.error("Failed to leave cluster", ar.cause());
         }
+        latch.countDown();
       });
       vertx.cancelTimer(quorumTimerID);
+
+      boolean interrupted = false;
+      try {
+        long remainingNanos = MINUTES.toNanos(1);
+        long end = System.nanoTime() + remainingNanos;
+
+        while (true) {
+          try {
+            latch.await(remainingNanos, NANOSECONDS);
+            break;
+          } catch (InterruptedException e) {
+            interrupted = true;
+            remainingNanos = end - System.nanoTime();
+          }
+        }
+      } finally {
+        if (interrupted) {
+          Thread.currentThread().interrupt();
+        }
+      }
+
       stopped = true;
     }
   }
@@ -216,8 +245,8 @@ public class HAManager {
     this.failoverCompleteHandler = failoverCompleteHandler;
   }
 
-  public void setNodeCrashedHandler(FailoverCompleteHandler removeSubsHandler) {
-    this.nodeCrashedHandler = removeSubsHandler;
+  public void setClusterViewChangedHandler(Consumer<Set<String>> handler) {
+    this.clusterViewChangedHandler = handler;
   }
 
   public boolean isKilled() {
@@ -235,16 +264,23 @@ public class HAManager {
 
   private void doDeployVerticle(final String verticleName, DeploymentOptions deploymentOptions,
                                 final Handler<AsyncResult<String>> doneHandler) {
-    final Handler<AsyncResult<String>> wrappedHandler = asyncResult -> {
-      if (asyncResult.succeeded()) {
-        // Tell the other nodes of the cluster about the verticle for HA purposes
-        addToHA(asyncResult.result(), verticleName, deploymentOptions);
-      }
-      if (doneHandler != null) {
-        doneHandler.handle(asyncResult);
-      } else if (asyncResult.failed()) {
-        log.error("Failed to deploy verticle", asyncResult.cause());
-      }
+    final Handler<AsyncResult<String>> wrappedHandler = ar1 -> {
+      vertx.<String>executeBlocking(fut -> {
+        if (ar1.succeeded()) {
+          // Tell the other nodes of the cluster about the verticle for HA purposes
+          String deploymentID = ar1.result();
+          addToHA(deploymentID, verticleName, deploymentOptions);
+          fut.complete(deploymentID);
+        } else {
+          fut.fail(ar1.cause());
+        }
+      }, false, ar2 -> {
+        if (doneHandler != null) {
+          doneHandler.handle(ar2);
+        } else if (ar2.failed()) {
+          log.error("Failed to deploy verticle", ar2.cause());
+        }
+      });
     };
     deploymentManager.deployVerticle(verticleName, deploymentOptions, wrappedHandler);
   }
@@ -252,7 +288,8 @@ public class HAManager {
   // A node has joined the cluster
   // synchronize this in case the cluster manager is naughty and calls it concurrently
   private synchronized void nodeAdded(final String nodeID) {
-     // This is not ideal but we need to wait for the group information to appear - and this will be shortly
+    addHaInfoIfLost();
+    // This is not ideal but we need to wait for the group information to appear - and this will be shortly
     // after the node has been added
     checkQuorumWhenAdded(nodeID, System.currentTimeMillis());
   }
@@ -260,9 +297,11 @@ public class HAManager {
   // A node has left the cluster
   // synchronize this in case the cluster manager is naughty and calls it concurrently
   private synchronized void nodeLeft(String leftNodeID) {
+    addHaInfoIfLost();
 
     checkQuorum();
     if (attainedQuorum) {
+      checkSubs(leftNodeID);
 
       // Check for failover
       String sclusterInfo = clusterMap.get(leftNodeID);
@@ -271,7 +310,6 @@ public class HAManager {
         // Clean close - do nothing
       } else {
         JsonObject clusterInfo = new JsonObject(sclusterInfo);
-        checkRemoveSubs(leftNodeID, clusterInfo);
         checkFailover(leftNodeID, clusterInfo);
       }
 
@@ -281,8 +319,17 @@ public class HAManager {
 
       for (Map.Entry<String, String> entry: clusterMap.entrySet()) {
         if (!leftNodeID.equals(entry.getKey()) && !nodes.contains(entry.getKey())) {
-          checkFailover(entry.getKey(), new JsonObject(entry.getValue()));
+          JsonObject haInfo = new JsonObject(entry.getValue());
+          checkFailover(entry.getKey(), haInfo);
         }
+      }
+    }
+  }
+
+  private void addHaInfoIfLost() {
+    if (clusterManager.getNodes().contains(nodeID) && !clusterMap.containsKey(nodeID)) {
+      synchronized (haInfo) {
+        clusterMap.put(nodeID, haInfo.encode());
       }
     }
   }
@@ -290,23 +337,26 @@ public class HAManager {
   private synchronized void checkQuorumWhenAdded(final String nodeID, final long start) {
     if (clusterMap.containsKey(nodeID)) {
       checkQuorum();
+      if (attainedQuorum) {
+        checkSubs(nodeID);
+      }
     } else {
       vertx.setTimer(200, tid -> {
         // This can block on a monitor so it needs to run as a worker
-        vertx.executeBlockingInternal(() -> {
+        vertx.executeBlockingInternal(fut -> {
           if (System.currentTimeMillis() - start > 10000) {
             log.warn("Timed out waiting for group information to appear");
           } else if (!stopped) {
-            ContextImpl context = vertx.getContext();
+            ContextInternal context = vertx.getContext();
             try {
               // Remove any context we have here (from the timer) otherwise will screw things up when verticles are deployed
               ContextImpl.setContext(null);
               checkQuorumWhenAdded(nodeID, start);
             } finally {
-              ContextImpl.setContext(context);
+              ContextImpl.setContext((ContextImpl) context);
             }
           }
-          return null;
+          fut.complete();
         }, null);
       });
     }
@@ -360,12 +410,12 @@ public class HAManager {
   private void addToHADeployList(final String verticleName, final DeploymentOptions deploymentOptions,
                                  final Handler<AsyncResult<String>> doneHandler) {
     toDeployOnQuorum.add(() -> {
-      ContextImpl ctx = vertx.getContext();
+      ContextInternal ctx = vertx.getContext();
       try {
         ContextImpl.setContext(null);
         deployVerticle(verticleName, deploymentOptions, doneHandler);
       } finally {
-        ContextImpl.setContext(ctx);
+        ContextImpl.setContext((ContextImpl) ctx);
       }
     });
    }
@@ -388,31 +438,25 @@ public class HAManager {
       Deployment dep = deploymentManager.getDeployment(deploymentID);
       if (dep != null) {
         if (dep.deploymentOptions().isHa()) {
-          ContextImpl ctx = vertx.getContext();
+          ContextInternal ctx = vertx.getContext();
           try {
             ContextImpl.setContext(null);
-            deploymentManager.undeployVerticle(deploymentID, new AsyncResultHandler<Void>() {
-              @Override
-              public void handle(AsyncResult<Void> result) {
-                if (result.succeeded()) {
-                  log.info("Successfully undeployed HA deployment " + deploymentID + "-" + dep.verticleIdentifier() + " as there is no quorum");
-                  addToHADeployList(dep.verticleIdentifier(), dep.deploymentOptions(), new AsyncResultHandler<String>() {
-                    @Override
-                    public void handle(AsyncResult<String> result) {
-                      if (result.succeeded()) {
-                        log.info("Successfully redeployed verticle " + dep.verticleIdentifier() + " after quorum was re-attained");
-                      } else {
-                        log.error("Failed to redeploy verticle " + dep.verticleIdentifier() + " after quorum was re-attained", result.cause());
-                      }
-                    }
-                  });
-                } else {
-                  log.error("Failed to undeploy deployment on lost quorum", result.cause());
-                }
+            deploymentManager.undeployVerticle(deploymentID, result -> {
+              if (result.succeeded()) {
+                log.info("Successfully undeployed HA deployment " + deploymentID + "-" + dep.verticleIdentifier() + " as there is no quorum");
+                addToHADeployList(dep.verticleIdentifier(), dep.deploymentOptions(), result1 -> {
+                  if (result1.succeeded()) {
+                    log.info("Successfully redeployed verticle " + dep.verticleIdentifier() + " after quorum was re-attained");
+                  } else {
+                    log.error("Failed to redeploy verticle " + dep.verticleIdentifier() + " after quorum was re-attained", result1.cause());
+                  }
+                });
+              } else {
+                log.error("Failed to undeploy deployment on lost quorum", result.cause());
               }
             });
           } finally {
-            ContextImpl.setContext(ctx);
+            ContextImpl.setContext((ContextImpl) ctx);
           }
         }
       }
@@ -451,37 +495,45 @@ public class HAManager {
         }
         // Failover is complete! We can now remove the failed node from the cluster map
         clusterMap.remove(failedNodeID);
-        callFailoverCompleteHandler(failedNodeID, theHAInfo, true);
+        runOnContextAndWait(() -> {
+          if (failoverCompleteHandler != null) {
+            failoverCompleteHandler.handle(failedNodeID, theHAInfo, true);
+          }
+        });
       }
     } catch (Throwable t) {
       log.error("Failed to handle failover", t);
-      callFailoverCompleteHandler(failedNodeID, theHAInfo, false);
+      runOnContextAndWait(() -> {
+        if (failoverCompleteHandler != null) {
+          failoverCompleteHandler.handle(failedNodeID, theHAInfo, false);
+        }
+      });
     }
   }
 
-  private void checkRemoveSubs(String failedNodeID, JsonObject theHAInfo) {
+  private void checkSubs(String failedNodeID) {
+    if (clusterViewChangedHandler == null) {
+      return;
+    }
     String chosen = chooseHashedNode(null, failedNodeID.hashCode());
     if (chosen != null && chosen.equals(this.nodeID)) {
-      callFailoverCompleteHandler(nodeCrashedHandler, failedNodeID, theHAInfo, true);
+      runOnContextAndWait(() -> clusterViewChangedHandler.accept(new HashSet<>(clusterManager.getNodes())));
     }
   }
 
-  private void callFailoverCompleteHandler(String nodeID, JsonObject haInfo, boolean result) {
-    callFailoverCompleteHandler(failoverCompleteHandler, nodeID, haInfo, result);
-  }
-
-  private void callFailoverCompleteHandler(FailoverCompleteHandler handler, String nodeID, JsonObject haInfo, boolean result) {
-    if (handler != null) {
-      CountDownLatch latch = new CountDownLatch(1);
-      // The testsuite requires that this is called on a Vert.x thread
-      vertx.runOnContext(v -> {
-        handler.handle(nodeID, haInfo, result);
-        latch.countDown();
-      });
+  private void runOnContextAndWait(Runnable runnable) {
+    CountDownLatch latch = new CountDownLatch(1);
+    // The testsuite requires that this is called on a Vert.x thread
+    vertx.runOnContext(v -> {
       try {
-        latch.await(30, TimeUnit.SECONDS);
-      } catch (InterruptedException ignore) {
+        runnable.run();
+      } finally {
+        latch.countDown();
       }
+    });
+    try {
+      latch.await(30, TimeUnit.SECONDS);
+    } catch (InterruptedException ignore) {
     }
   }
 
@@ -495,7 +547,7 @@ public class HAManager {
     final CountDownLatch latch = new CountDownLatch(1);
     final AtomicReference<Throwable> err = new AtomicReference<>();
     // Now deploy this verticle on this node
-    ContextImpl ctx = vertx.getContext();
+    ContextInternal ctx = vertx.getContext();
     if (ctx != null) {
       // We could be on main thread in which case we don't want to overwrite tccl
       ContextImpl.setContext(null);
@@ -517,7 +569,7 @@ public class HAManager {
       });
     } finally {
       if (ctx != null) {
-        ContextImpl.setContext(ctx);
+        ContextImpl.setContext((ContextImpl) ctx);
       }
     }
     try {
@@ -552,6 +604,4 @@ public class HAManager {
       return null;
     }
   }
-
-
 }

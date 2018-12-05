@@ -1,43 +1,49 @@
 /*
- * Copyright (c) 2011-2013 The original author or authors
- * ------------------------------------------------------
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
- * and Apache License v2.0 which accompanies this distribution.
+ * Copyright (c) 2011-2017 Contributors to the Eclipse Foundation
  *
- *     The Eclipse Public License is available at
- *     http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+ * which is available at https://www.apache.org/licenses/LICENSE-2.0.
  *
- *     The Apache License v2.0 is available at
- *     http://www.opensource.org/licenses/apache2.0.php
- *
- * You may elect to redistribute this code under either of these licenses.
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
  */
 
 package io.vertx.core.impl;
 
 import io.netty.channel.EventLoop;
 import io.netty.channel.EventLoopGroup;
-import io.vertx.core.*;
+import io.vertx.core.AsyncResult;
+import io.vertx.core.Closeable;
+import io.vertx.core.Context;
+import io.vertx.core.Future;
+import io.vertx.core.Handler;
+import io.vertx.core.Starter;
 import io.vertx.core.impl.launcher.VertxCommandLauncher;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
+import io.vertx.core.spi.metrics.PoolMetrics;
 
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @author <a href="http://tfox.org">Tim Fox</a>
  */
-public abstract class ContextImpl implements ContextInternal {
+abstract class ContextImpl implements ContextInternal {
+
+  private static EventLoop getEventLoop(VertxInternal vertx) {
+    EventLoopGroup group = vertx.getEventLoopGroup();
+    if (group != null) {
+      return group.next();
+    } else {
+      return null;
+    }
+  }
 
   private static final Logger log = LoggerFactory.getLogger(ContextImpl.class);
 
@@ -52,35 +58,39 @@ public abstract class ContextImpl implements ContextInternal {
   protected final String deploymentID;
   protected final JsonObject config;
   private Deployment deployment;
-  private Set<Closeable> closeHooks;
+  private CloseHooks closeHooks;
   private final ClassLoader tccl;
   private final EventLoop eventLoop;
-  protected final Executor orderedInternalPoolExec;
-  protected final Executor workerExec;
-  protected VertxThread contextThread;
-  private volatile boolean closeHooksRun;
-  private Map<String, Object> contextData;
+  private ConcurrentMap<Object, Object> contextData;
+  private volatile Handler<Throwable> exceptionHandler;
+  protected final WorkerPool workerPool;
+  protected final WorkerPool internalBlockingPool;
+  final TaskQueue orderedTasks;
+  protected final TaskQueue internalOrderedTasks;
 
-  protected ContextImpl(VertxInternal vertx, Executor orderedInternalPoolExec, Executor workerExec, String deploymentID, JsonObject config,
+  protected ContextImpl(VertxInternal vertx, WorkerPool internalBlockingPool, WorkerPool workerPool, String deploymentID, JsonObject config,
                         ClassLoader tccl) {
-    if (DISABLE_TCCL && !tccl.getClass().getName().equals("sun.misc.Launcher$AppClassLoader")) {
-      log.warn("You have disabled TCCL checks but you have a custom TCCL to set.");
-    }
-    this.orderedInternalPoolExec = orderedInternalPoolExec;
-    this.workerExec = workerExec;
-    this.deploymentID = deploymentID;
-    this.config = config;
-    EventLoopGroup group = vertx.getEventLoopGroup();
-    if (group != null) {
-      this.eventLoop = group.next();
-    } else {
-      this.eventLoop = null;
-    }
-    this.tccl = tccl;
-    this.owner = vertx;
+    this(vertx, getEventLoop(vertx), internalBlockingPool, workerPool, deploymentID, config, tccl);
   }
 
-  public static void setContext(ContextImpl context) {
+  protected ContextImpl(VertxInternal vertx, EventLoop eventLoop, WorkerPool internalBlockingPool, WorkerPool workerPool, String deploymentID, JsonObject config,
+                        ClassLoader tccl) {
+    if (DISABLE_TCCL && tccl != ClassLoader.getSystemClassLoader()) {
+      log.warn("You have disabled TCCL checks but you have a custom TCCL to set.");
+    }
+    this.deploymentID = deploymentID;
+    this.config = config;
+    this.eventLoop = eventLoop;
+    this.tccl = tccl;
+    this.owner = vertx;
+    this.workerPool = workerPool;
+    this.internalBlockingPool = internalBlockingPool;
+    this.orderedTasks = new TaskQueue();
+    this.internalOrderedTasks = new TaskQueue();
+    this.closeHooks = new CloseHooks(log);
+  }
+
+  static void setContext(ContextImpl context) {
     Thread current = Thread.currentThread();
     if (current instanceof VertxThread) {
       setContext((VertxThread) current, context);
@@ -109,62 +119,22 @@ public abstract class ContextImpl implements ContextInternal {
   }
 
   public void addCloseHook(Closeable hook) {
-    if (closeHooks == null) {
-      // Has to be concurrent as can be removed from non context thread
-      closeHooks = new ConcurrentHashSet<>();
-    }
     closeHooks.add(hook);
   }
 
   public void removeCloseHook(Closeable hook) {
-    if (closeHooks != null) {
-      closeHooks.remove(hook);
-    }
+    closeHooks.remove(hook);
   }
 
   public void runCloseHooks(Handler<AsyncResult<Void>> completionHandler) {
-    if (closeHooksRun) {
-      // Sanity check
-      throw new IllegalStateException("Close hooks already run");
-    }
-    closeHooksRun = true;
-    if (closeHooks != null && !closeHooks.isEmpty()) {
-      // Must copy before looping as can be removed during loop otherwise
-      Set<Closeable> copy = new HashSet<>(closeHooks);
-      int num = copy.size();
-      if (num != 0) {
-        AtomicInteger count = new AtomicInteger();
-        AtomicBoolean failed = new AtomicBoolean();
-        for (Closeable hook : copy) {
-          try {
-            hook.close(ar -> {
-              if (ar.failed()) {
-                if (failed.compareAndSet(false, true)) {
-                  // Only report one failure
-                  completionHandler.handle(Future.failedFuture(ar.cause()));
-                }
-              } else {
-                if (count.incrementAndGet() == num) {
-                  // closeHooksRun = true;
-                  completionHandler.handle(Future.succeededFuture());
-                }
-              }
-            });
-          } catch (Throwable t) {
-            log.warn("Failed to run close hooks", t);
-          }
-        }
-      } else {
-        completionHandler.handle(Future.succeededFuture());
-      }
-    } else {
-      completionHandler.handle(Future.succeededFuture());
-    }
+    closeHooks.run(completionHandler);
     // Now remove context references from threads
     VertxThreadFactory.unsetContext(this);
   }
 
-  protected abstract void executeAsync(Handler<Void> task);
+  abstract void executeAsync(Handler<Void> task);
+
+  abstract <T> void execute(T value, Handler<T> task);
 
   @Override
   public abstract boolean isEventLoopContext();
@@ -193,20 +163,7 @@ public abstract class ContextImpl implements ContextInternal {
     return !isEventLoopContext();
   }
 
-  public static boolean isOnWorkerThread() {
-    return isOnVertxThread(true);
-  }
-
-  public static boolean isOnEventLoopThread() {
-    return isOnVertxThread(false);
-  }
-
-  public static boolean isOnVertxThread() {
-    Thread t = Thread.currentThread();
-    return (t instanceof VertxThread);
-  }
-
-  private static boolean isOnVertxThread(boolean worker) {
+  static boolean isOnVertxThread(boolean worker) {
     Thread t = Thread.currentThread();
     if (t instanceof VertxThread) {
       VertxThread vt = (VertxThread) t;
@@ -218,14 +175,27 @@ public abstract class ContextImpl implements ContextInternal {
   // This is called to execute code where the origin is IO (from Netty probably).
   // In such a case we should already be on an event loop thread (as Netty manages the event loops)
   // but check this anyway, then execute directly
-  public void executeFromIO(ContextTask task) {
-    if (THREAD_CHECKS) {
-      checkCorrectThread();
-    }
-    wrapTask(task, null, true).run();
+  @Override
+  public final void executeFromIO(Handler<Void> task) {
+    executeFromIO(null, task);
   }
 
-  protected abstract void checkCorrectThread();
+  @Override
+  public final <T> void executeFromIO(T value, Handler<T> task) {
+    if (THREAD_CHECKS) {
+      checkEventLoopThread();
+    }
+    execute(value, task);
+  }
+
+  private void checkEventLoopThread() {
+    Thread current = Thread.currentThread();
+    if (!(current instanceof VertxThread)) {
+      throw new IllegalStateException("Expected to be on Vert.x thread, but actually on: " + current);
+    } else if (((VertxThread) current).isWorker()) {
+      throw new IllegalStateException("Event delivered on unexpected worker thread " + current);
+    }
+  }
 
   // Run the task asynchronously on this same context
   @Override
@@ -258,18 +228,18 @@ public abstract class ContextImpl implements ContextInternal {
     return eventLoop;
   }
 
-  public Vertx owner() {
+  public VertxInternal owner() {
     return owner;
   }
 
-  // Execute an internal task on the internal blocking ordered executor
-  public <T> void executeBlocking(Action<T> action, Handler<AsyncResult<T>> resultHandler) {
-    executeBlocking(action, null, true, true, resultHandler);
+  @Override
+  public <T> void executeBlockingInternal(Handler<Future<T>> action, Handler<AsyncResult<T>> resultHandler) {
+    executeBlocking(action, resultHandler, internalBlockingPool.executor(), internalOrderedTasks, internalBlockingPool.metrics());
   }
 
   @Override
   public <T> void executeBlocking(Handler<Future<T>> blockingCodeHandler, boolean ordered, Handler<AsyncResult<T>> resultHandler) {
-    executeBlocking(null, blockingCodeHandler, false, ordered, resultHandler);
+    executeBlocking(blockingCodeHandler, resultHandler, workerPool.executor(), ordered ? orderedTasks : null, workerPool.metrics());
   }
 
   @Override
@@ -277,77 +247,115 @@ public abstract class ContextImpl implements ContextInternal {
     executeBlocking(blockingCodeHandler, true, resultHandler);
   }
 
-  protected synchronized Map<String, Object> contextData() {
+  @Override
+  public <T> void executeBlocking(Handler<Future<T>> blockingCodeHandler, TaskQueue queue, Handler<AsyncResult<T>> resultHandler) {
+    executeBlocking(blockingCodeHandler, resultHandler, workerPool.executor(), queue, workerPool.metrics());
+  }
+
+  <T> void executeBlocking(Handler<Future<T>> blockingCodeHandler,
+      Handler<AsyncResult<T>> resultHandler,
+      Executor exec, TaskQueue queue, PoolMetrics metrics) {
+    Object queueMetric = metrics != null ? metrics.submitted() : null;
+    try {
+      Runnable command = () -> {
+        VertxThread current = (VertxThread) Thread.currentThread();
+        Object execMetric = null;
+        if (metrics != null) {
+          execMetric = metrics.begin(queueMetric);
+        }
+        if (!DISABLE_TIMINGS) {
+          current.executeStart();
+        }
+        Future<T> res = Future.future();
+        try {
+          ContextImpl.setContext(this);
+          blockingCodeHandler.handle(res);
+        } catch (Throwable e) {
+          res.tryFail(e);
+        } finally {
+          if (!DISABLE_TIMINGS) {
+            current.executeEnd();
+          }
+        }
+        if (metrics != null) {
+          metrics.end(execMetric, res.succeeded());
+        }
+        if (resultHandler != null) {
+          res.setHandler(ar -> runOnContext(v -> resultHandler.handle(ar)));
+        }
+      };
+      if (queue != null) {
+        queue.execute(command, exec);
+      } else {
+        exec.execute(command);
+      }
+    } catch (RejectedExecutionException e) {
+      // Pool is already shut down
+      if (metrics != null) {
+        metrics.rejected(queueMetric);
+      }
+      throw e;
+    }
+  }
+
+  @Override
+  public synchronized ConcurrentMap<Object, Object> contextData() {
     if (contextData == null) {
       contextData = new ConcurrentHashMap<>();
     }
     return contextData;
   }
 
-  private <T> void executeBlocking(Action<T> action, Handler<Future<T>> blockingCodeHandler, boolean internal,
-                                   boolean ordered, Handler<AsyncResult<T>> resultHandler) {
+  <T> boolean executeTask(T arg, Handler<T> hTask) {
+    Thread th = Thread.currentThread();
+    if (!(th instanceof VertxThread)) {
+      throw new IllegalStateException("Uh oh! context executing with wrong thread! " + th);
+    }
+    VertxThread current = (VertxThread) th;
+    if (!DISABLE_TIMINGS) {
+      current.executeStart();
+    }
     try {
-      Executor exec = internal ? orderedInternalPoolExec : (ordered ? workerExec : owner.getWorkerPool());
-      exec.execute(() -> {
-        Future<T> res = Future.future();
-        try {
-          if (blockingCodeHandler != null) {
-            setContext(this);
-            blockingCodeHandler.handle(res);
-          } else {
-            T result = action.perform();
-            res.complete(result);
-          }
-        } catch (Throwable e) {
-          res.fail(e);
-        }
-        if (resultHandler != null) {
-          runOnContext(v -> res.setHandler(resultHandler));
-        }
-      });
-    } catch (RejectedExecutionException ignore) {
-      // Pool is already shut down
+      setContext(current, this);
+      hTask.handle(arg);
+      return true;
+    } catch (Throwable t) {
+      reportException(t);
+      return false;
+    } finally {
+      // We don't unset the context after execution - this is done later when the context is closed via
+      // VertxThreadFactory
+      if (!DISABLE_TIMINGS) {
+        current.executeEnd();
+      }
     }
   }
 
-  protected Runnable wrapTask(ContextTask cTask, Handler<Void> hTask, boolean checkThread) {
-    return () -> {
-      Thread th = Thread.currentThread();
-      if (!(th instanceof VertxThread)) {
-        throw new IllegalStateException("Uh oh! Event loop context executing with wrong thread! Expected " + contextThread + " got " + th);
-      }
-      VertxThread current = (VertxThread) th;
-      if (THREAD_CHECKS && checkThread) {
-        if (contextThread == null) {
-          contextThread = current;
-        } else if (contextThread != current && !contextThread.isWorker()) {
-          throw new IllegalStateException("Uh oh! Event loop context executing with wrong thread! Expected " + contextThread + " got " + current);
-        }
-      }
-      if (!DISABLE_TIMINGS) {
-        current.executeStart();
-      }
-      try {
-        setContext(current, ContextImpl.this);
-        if (cTask != null) {
-          cTask.run();
-        } else {
-          hTask.handle(null);
-        }
-      } catch (Throwable t) {
-        log.error("Unhandled exception", t);
-      } finally {
-        // We don't unset the context after execution - this is done later when the context is closed via
-        // VertxThreadFactory
-        if (!DISABLE_TIMINGS) {
-          current.executeEnd();
-        }
-      }
-    };
+  public void reportException(Throwable t) {
+    Handler<Throwable> handler = this.exceptionHandler;
+    if (handler == null) {
+      handler = owner.exceptionHandler();
+    }
+    if (handler != null) {
+      handler.handle(t);
+    } else {
+      log.error("Unhandled exception", t);
+    }
   }
 
   private void setTCCL() {
     Thread.currentThread().setContextClassLoader(tccl);
+  }
+
+  @Override
+  public Context exceptionHandler(Handler<Throwable> handler) {
+    exceptionHandler = handler;
+    return this;
+  }
+
+  @Override
+  public Handler<Throwable> exceptionHandler() {
+    return exceptionHandler;
   }
 
   public int getInstanceCount() {
